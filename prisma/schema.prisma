@@ -1,0 +1,427 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── 사용자 & 인증 ───
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String?    @unique
+  password      String?
+  nickname      String?    @db.VarChar(50)
+  gender        Gender?
+  countryCode   String?    @db.Char(2)
+  language      String?    @default("ko") @db.VarChar(10)
+  bio           String?
+  interests     Json?
+  role          Role       @default(USER)
+  status        UserStatus @default(ACTIVE)
+  creditBalance Int        @default(0)
+  lastActiveAt  DateTime   @default(now())
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  socialAccounts   SocialAccount[]
+  userAvatars      UserAvatar[]
+  sentRequests     FriendRequest[]    @relation("sender")
+  receivedRequests FriendRequest[]    @relation("receiver")
+  posts            Post[]
+  postLikes        PostLike[]
+  postComments     PostComment[]
+  subscriptions    UserSubscription[]
+  reportsFiled     Report[]           @relation("reporter")
+  reportsReceived  Report[]           @relation("target")
+  suspensions      Suspension[]
+  creditHistory    CreditTransaction[]
+  adminLogs        AdminLog[]
+  aiModLogs        AiModerationLog[]
+
+  @@index([email])
+  @@index([status])
+  @@index([lastActiveAt])
+}
+
+model SocialAccount {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  provider     Provider
+  providerUid  String
+  accessToken  String?
+  refreshToken String?
+  tokenExpires DateTime?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUid])
+}
+
+// ─── 아바타 & 필터 ───
+model Avatar {
+  id           String         @id @default(uuid()) @db.Uuid
+  category     AvatarCategory
+  name         String         @db.VarChar(100)
+  previewUrl   String?
+  modelUrl     String?
+  priceCredits Int            @default(0)
+  isPremium    Boolean        @default(false)
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+
+  userAvatars UserAvatar[]
+}
+
+model UserAvatar {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  avatarId    String   @db.Uuid
+  isEquipped  Boolean  @default(false)
+  purchasedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatar Avatar @relation(fields: [avatarId], references: [id])
+
+  @@unique([userId, avatarId])
+}
+
+model FaceFilter {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String     @db.VarChar(100)
+  type         FilterType
+  modelUrl     String?
+  priceCredits Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+}
+
+// ─── 매칭 & 통화 ───
+model Match {
+  id        String   @id @default(uuid()) @db.Uuid
+  userAId   String   @db.Uuid
+  userBId   String   @db.Uuid
+  matchedAt DateTime @default(now())
+
+  calls Call[]
+
+  @@index([userAId])
+  @@index([userBId])
+}
+
+model Call {
+  id                 String           @id @default(uuid()) @db.Uuid
+  matchId            String           @db.Uuid
+  callerId           String           @db.Uuid
+  calleeId           String           @db.Uuid
+  callType           CallType         @default(VIDEO)
+  voiceFilter        VoiceFilter      @default(NONE)
+  translationEnabled Boolean          @default(false)
+  translationMode    TranslationMode?
+  startedAt          DateTime         @default(now())
+  endedAt            DateTime?
+  durationSec        Int?
+  endReason          EndReason        @default(NORMAL)
+
+  match   Match    @relation(fields: [matchId], references: [id])
+  reports Report[]
+
+  @@index([callerId, startedAt])
+  @@index([calleeId])
+}
+
+// ─── 친구 & 개인 페이지 ───
+model FriendRequest {
+  id          String       @id @default(uuid()) @db.Uuid
+  senderId    String       @db.Uuid
+  receiverId  String       @db.Uuid
+  status      FriendStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  respondedAt DateTime?
+
+  sender   User @relation("sender", fields: [senderId], references: [id])
+  receiver User @relation("receiver", fields: [receiverId], references: [id])
+
+  @@unique([senderId, receiverId])
+}
+
+model Post {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @db.Uuid
+  content      String
+  mediaUrls    Json?
+  visibility   Visibility @default(FRIENDS)
+  likeCount    Int        @default(0)
+  commentCount Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likes    PostLike[]
+  comments PostComment[]
+
+  @@index([userId, createdAt])
+}
+
+model PostLike {
+  userId    String   @db.Uuid
+  postId    String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+}
+
+model PostComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  postId    String   @db.Uuid
+  userId    String   @db.Uuid
+  content   String
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── 신고 & AI 관리 ───
+model Report {
+  id          String       @id @default(uuid()) @db.Uuid
+  reporterId  String       @db.Uuid
+  targetId    String       @db.Uuid
+  callId      String?      @db.Uuid
+  reason      ReportReason
+  description String?
+  status      ReportStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+
+  reporter   User             @relation("reporter", fields: [reporterId], references: [id])
+  target     User             @relation("target", fields: [targetId], references: [id])
+  call       Call?            @relation(fields: [callId], references: [id])
+  evidence   ReportEvidence[]
+  suspension Suspension?
+
+  @@index([status])
+  @@index([targetId])
+}
+
+model ReportEvidence {
+  id            String    @id @default(uuid()) @db.Uuid
+  reportId      String    @db.Uuid
+  screenshotUrl String?
+  aiAnalysis    Json?
+  aiVerdict     AiVerdict?
+  aiConfidence  Float?
+  createdAt     DateTime  @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model Suspension {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
+  reportId  String?        @unique @db.Uuid
+  type      SuspensionType
+  reason    String?
+  issuedBy  IssuedBy
+  startsAt  DateTime       @default(now())
+  endsAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  user   User    @relation(fields: [userId], references: [id])
+  report Report? @relation(fields: [reportId], references: [id])
+}
+
+// ─── 구독 & 결제 ───
+model SubscriptionPlan {
+  id              String  @id @default(uuid()) @db.Uuid
+  name            String  @db.VarChar(50)
+  priceMonthly    Float
+  matchLimitDaily Int     @default(5)
+  genderFilter    Boolean @default(false)
+  voiceFilter     Boolean @default(false)
+  translation     Boolean @default(false)
+  premiumAvatars  Boolean @default(false)
+
+  subscriptions UserSubscription[]
+}
+
+model UserSubscription {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @db.Uuid
+  planId             String    @db.Uuid
+  status             SubStatus @default(ACTIVE)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  paymentProvider    String?
+  providerSubId      String?
+  createdAt          DateTime  @default(now())
+
+  user User             @relation(fields: [userId], references: [id])
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId, status])
+}
+
+model CreditTransaction {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  amount      Int
+  type        CreditType
+  refType     String?
+  refId       String?    @db.Uuid
+  description String?
+  createdAt   DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+// ─── 관리자 ───
+model AdminLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  adminId    String   @db.Uuid
+  action     String
+  targetType String?
+  targetId   String?  @db.Uuid
+  detail     Json?
+  createdAt  DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([adminId, createdAt])
+}
+
+model AiModerationLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  action        String
+  targetUserId  String   @db.Uuid
+  triggerReason String?
+  confidence    Float?
+  result        Json?
+  createdAt     DateTime @default(now())
+
+  targetUser User @relation(fields: [targetUserId], references: [id])
+
+  @@index([targetUserId])
+}
+
+// ─── Enums ───
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DORMANT
+  DELETED
+}
+
+enum Provider {
+  GOOGLE
+  INSTAGRAM
+  TELEGRAM
+  X
+}
+
+enum AvatarCategory {
+  ANIMAL
+  HUMAN
+  MASK
+}
+
+enum FilterType {
+  FILTER
+  DEEPFAKE
+  CUSTOM
+}
+
+enum CallType {
+  VIDEO
+  VOICE
+}
+
+enum VoiceFilter {
+  NONE
+  MALE_TO_FEMALE
+  FEMALE_TO_MALE
+}
+
+enum TranslationMode {
+  SUBTITLE
+  TTS
+}
+
+enum EndReason {
+  NORMAL
+  REPORT
+  DISCONNECT
+}
+
+enum ReportReason {
+  HARASSMENT
+  NUDITY
+  SPAM
+  HATE
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  AI_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum AiVerdict {
+  VIOLATION
+  CLEAN
+  UNCERTAIN
+}
+
+enum SuspensionType {
+  WARNING
+  TEMP_BAN
+  PERMANENT
+}
+
+enum IssuedBy {
+  AI
+  ADMIN
+}
+
+enum SubStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum CreditType {
+  PURCHASE
+  REWARD
+  SPEND
+  REFUND
+}
+
+enum Visibility {
+  PUBLIC
+  FRIENDS
+  PRIVATE
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
