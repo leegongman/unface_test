@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
-import type { Prisma } from "@prisma/client"
+import type { AvatarCategory, Prisma } from "@prisma/client"
 import { stripe } from "@/lib/stripe"
 
 type Product =
@@ -19,7 +19,7 @@ type Product =
       key: string
       itemType: "avatar" | "celeb"
       refName: string
-      avatarCategory: string
+      avatarCategory: AvatarCategory
       isPremium: boolean
     }
 
