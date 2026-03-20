@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
+import type { Prisma } from "@prisma/client"
 import { stripe } from "@/lib/stripe"
 
 type Product =
@@ -200,7 +201,10 @@ function resolveProduct(metadata: Record<string, string>) {
   return legacyKey ? PRODUCT_CATALOG[legacyKey] : null
 }
 
-async function fulfillProduct(tx: any, params: { userId: string; product: Product; fulfillmentKey: string; sessionId: string }) {
+async function fulfillProduct(
+  tx: Prisma.TransactionClient,
+  params: { userId: string; product: Product; fulfillmentKey: string; sessionId: string }
+) {
   const { userId, product, fulfillmentKey, sessionId } = params
 
   if (product.itemType === "avatar" || product.itemType === "celeb") {
@@ -349,7 +353,7 @@ export async function POST(req: Request) {
   const fulfillmentKey = `stripe:${session.id}`
 
   try {
-    const processed = await prisma.$transaction(async (tx) => {
+    const processed = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${fulfillmentKey}))`
 
       const alreadyProcessed = await tx.creditTransaction.findFirst({
