@@ -1,7 +1,7 @@
 // 변경 이유: NextAuth v4 설정을 Auth.js v5 패턴으로 마이그레이션하고 JWT 세션 필드를 타입 안전하게 유지하기 위해 재작성했습니다.
 import type { Role, User, UserStatus } from "@prisma/client"
 import bcrypt from "bcryptjs"
-import NextAuth, { type NextAuthConfig } from "next-auth"
+import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 
@@ -191,6 +191,6 @@ export const authOptions = {
       return session
     },
   },
-} satisfies NextAuthConfig
+} satisfies Parameters<typeof NextAuth>[0]
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authOptions)
