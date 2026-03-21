@@ -14,6 +14,8 @@ type AuthUserShape = {
   onboardingDone: boolean
 }
 
+type AuthConfig = Parameters<typeof NextAuth>[0]
+
 function getDisplayNickname(user: Pick<User, "nickname">) {
   return user.nickname?.trim() || "익명"
 }
@@ -191,6 +193,6 @@ export const authOptions = {
       return session
     },
   },
-} satisfies Parameters<typeof NextAuth>[0]
+} satisfies AuthConfig
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authOptions)
