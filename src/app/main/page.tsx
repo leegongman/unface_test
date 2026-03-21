@@ -114,6 +114,16 @@ export default function MainPage() {
       return
     }
 
+    if (AVATARS[selectedAvatar]?.name === "흰색 마스크") {
+      setActiveFilterId("dental-mask")
+      return
+    }
+
+    if (AVATARS[selectedAvatar]?.name === "검정 마스크") {
+      setActiveFilterId("black-dental-mask")
+      return
+    }
+
     setActiveFilterId(null)
   }, [selectedAvatar, selectedCeleb])
   useEffect(() => {

@@ -4,3 +4,5 @@
 // Next.js App Router 환경에서는 require.context 기반 동적 등록이 흔들릴 수 있어
 // 실제 런타임에서 registry가 비어 있는 문제가 생길 수 있습니다.
 import "./avatars/CatFilter"
+import "./avatars/BlackDentalMaskFilter"
+import "./avatars/DentalMaskFilter"

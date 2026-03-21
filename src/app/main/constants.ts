@@ -4,6 +4,8 @@ import type { FriendRecord, RecentCallRecord } from "./types"
 export const AVATARS = [
   { emoji: "😶", name: "기본", price: "$1", category: "MASK", free: true },
   { emoji: "🐱", name: "고양이", price: "$1", category: "ANIMAL", free: true },
+  { emoji: "😷", name: "흰색 마스크", price: "무료", category: "MASK", free: true },
+  { emoji: "😷", name: "검정 마스크", price: "무료", category: "MASK", free: true },
   { emoji: "🦊", name: "여우", price: "$1", category: "ANIMAL", free: true },
   { emoji: "🤖", name: "로봇", price: "$1", category: "MASK", free: true },
   { emoji: "🐙", name: "문어", price: "$1", category: "ANIMAL", free: true },
