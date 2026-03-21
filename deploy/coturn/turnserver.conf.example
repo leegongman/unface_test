@@ -16,6 +16,7 @@ external-ip=YOUR_LIGHTSAIL_STATIC_IP
 # Relay port range example
 min-port=49160
 max-port=49260
+# Open this UDP relay range in Lightsail firewall/security rules.
 
 # Realm must match your real domain later.
 realm=turn.your-domain.com
@@ -31,6 +32,10 @@ user=your-turn-username:your-turn-password
 
 # TLS certificate paths for TURN over TLS on 5349
 # Replace these after the domain is connected and Certbot certificates exist.
+# If the app uses TURN_URLS, include all of the following in the env:
+# - turn:turn.your-domain.com:3478?transport=udp
+# - turn:turn.your-domain.com:3478?transport=tcp
+# - turns:turn.your-domain.com:5349?transport=tcp
 cert=/etc/letsencrypt/live/turn.your-domain.com/fullchain.pem
 pkey=/etc/letsencrypt/live/turn.your-domain.com/privkey.pem
 
