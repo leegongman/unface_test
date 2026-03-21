@@ -57,15 +57,53 @@ interface WebRtcIcePayload {
   candidate: RTCIceCandidateInit
 }
 
+function normalizeServerRegion(region: string | undefined) {
+  const normalized = region?.trim().toUpperCase()
+
+  switch (normalized) {
+    case "북아메리카":
+      return "NA"
+    case "남아메리카":
+      return "SA"
+    case "유럽":
+      return "EU"
+    case "아프리카":
+      return "AF"
+    case "아시아":
+      return "AS"
+    case "오세아니아":
+      return "OC"
+    case "NA":
+    case "SA":
+    case "EU":
+    case "AF":
+    case "AS":
+    case "OC":
+      return normalized
+    default:
+      return "AS"
+  }
+}
+
+function removeQueueEntry(socketId: string) {
+  const idx = matchQueue.findIndex((q) => q.socketId === socketId)
+  if (idx !== -1) matchQueue.splice(idx, 1)
+}
+
 function handleMatchJoin(socket: Socket, data: MatchJoinPayload) {
-  // 이미 대기 중이면 무시
-  if (matchQueue.find((q) => q.socketId === socket.id)) return
+  removeQueueEntry(socket.id)
 
-  const entry: QueueEntry = { socketId: socket.id, ...data }
+  const normalizedRegion = normalizeServerRegion(data.region)
+  const entry: QueueEntry = {
+    socketId: socket.id,
+    ...data,
+    region: normalizedRegion,
+  }
 
-  // 매칭 조건: 지역 + 양방향 성별 필터 모두 충족하는 상대 찾기
+  // 매칭 조건: 같은 서버 대륙 + 양방향 성별 필터 모두 충족하는 상대 찾기
   const isCompatible = (q: QueueEntry) => {
     if (q.socketId === socket.id) return false
+    if (q.region !== normalizedRegion) return false
     // 내가 원하는 상대 성별 체크
     if (data.preferGender && data.preferGender !== "OTHER" && q.gender !== data.preferGender) return false
     // 상대가 원하는 성별 체크 (상대의 필터도 만족해야 함)
@@ -73,18 +111,7 @@ function handleMatchJoin(socket: Socket, data: MatchJoinPayload) {
     return true
   }
 
-  // 같은 지역 + 성별 조건 우선
-  let matchIndex = matchQueue.findIndex((q) => isCompatible(q) && q.region === data.region)
-
-  // 없으면 지역 무관 + 성별 조건
-  if (matchIndex === -1) {
-    matchIndex = matchQueue.findIndex((q) => isCompatible(q))
-  }
-
-  // 없으면 성별 조건 무시하고 아무나 (대기 최소화)
-  if (matchIndex === -1) {
-    matchIndex = matchQueue.findIndex((q) => q.socketId !== socket.id)
-  }
+  const matchIndex = matchQueue.findIndex((q) => isCompatible(q))
 
   if (matchIndex !== -1) {
     const partner = matchQueue.splice(matchIndex, 1)[0]
@@ -154,8 +181,7 @@ io.on("connection", (socket) => {
   })
 
   socket.on("match:cancel", () => {
-    const idx = matchQueue.findIndex((q) => q.socketId === socket.id)
-    if (idx !== -1) matchQueue.splice(idx, 1)
+    removeQueueEntry(socket.id)
   })
 
   socket.on("webrtc:offer", (data: WebRtcOfferPayload) => {
@@ -225,8 +251,7 @@ io.on("connection", (socket) => {
   })
 
   socket.on("disconnect", () => {
-    const idx = matchQueue.findIndex((q) => q.socketId === socket.id)
-    if (idx !== -1) matchQueue.splice(idx, 1)
+    removeQueueEntry(socket.id)
 
     onlineUsers.delete(socket.id)
 

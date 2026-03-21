@@ -16,7 +16,7 @@ interface UseSocketParams {
   activePeerSocketIdRef: React.MutableRefObject<string | null>
   startWebRTC: (peerId: string, isInitiator: boolean) => Promise<void>
   cleanupWebRTC: () => void
-  prepareIdlePreview: () => Promise<MediaStream | null>
+  rematchAfterCallEnd: () => void
   showToast: (msg: string, type?: "success" | "error" | "info") => void
   setInCall: React.Dispatch<React.SetStateAction<boolean>>
   setActivePeer: React.Dispatch<React.SetStateAction<{ id: string; name: string } | null>>
@@ -43,7 +43,7 @@ export function useSocket({
   activePeerSocketIdRef,
   startWebRTC,
   cleanupWebRTC,
-  prepareIdlePreview,
+  rematchAfterCallEnd,
   showToast,
   setInCall,
   setActivePeer,
@@ -97,6 +97,7 @@ export function useSocket({
       setActivePeer({ id: data.peerUserId, name: data.peerNickname })
       activePeerSocketIdRef.current = data.peerId
       setInCall(true)
+      if (callTimerRef.current) clearInterval(callTimerRef.current)
       setCallTimer(0)
       callTimerRef.current = setInterval(() => setCallTimer((seconds) => seconds + 1), 1000)
       await startWebRTC(data.peerId, data.isInitiator)
@@ -133,13 +134,17 @@ export function useSocket({
     })
 
     socket.on("call:ended", () => {
-      cleanupWebRTC()
-      setInCall(false)
-      setActivePeer(null)
-      activePeerSocketIdRef.current = null
-      if (callTimerRef.current) clearInterval(callTimerRef.current)
-      void prepareIdlePreview()
-      showToast("상대방이 통화를 종료했습니다")
+      const hasActiveCall = Boolean(activePeerSocketIdRef.current || peerConnectionRef.current)
+      if (!hasActiveCall) return
+
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current)
+        callTimerRef.current = null
+      }
+
+      setCallTimer(0)
+      showToast("상대방이 통화를 종료해 다음 상대를 찾고 있습니다", "info")
+      rematchAfterCallEnd()
     })
 
     socket.on("message:receive", (data: { text: string; time: string }) => {
@@ -175,7 +180,7 @@ export function useSocket({
     isMatchingRef,
     matchTimerRef,
     peerConnectionRef,
-    prepareIdlePreview,
+    rematchAfterCallEnd,
     setActivePeer,
     setCallTimer,
     setFriendRequest,

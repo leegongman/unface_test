@@ -42,56 +42,59 @@ export function useMatching({
   const matchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isMatchingRef = useRef(false)
 
+  const buildMatchPayload = useCallback(() => ({
+    userId: session?.user?.id ?? "unknown",
+    nickname: session?.user?.name ?? session?.user?.nickname ?? "익명",
+    region: userProfile.region,
+    gender: userProfile.gender,
+    preferGender: matchGenderPref,
+  }), [matchGenderPref, session, userProfile.gender, userProfile.region])
+
+  const beginMatchingState = useCallback(() => {
+    if (matchTimerRef.current) {
+      clearInterval(matchTimerRef.current)
+    }
+
+    setMatching(true)
+    setMatchTimer(0)
+    matchTimerRef.current = setInterval(() => setMatchTimer((seconds) => seconds + 1), 1000)
+  }, [])
+
   const startMatching = useCallback(() => {
     if (isMatchingLoading || isMatchingRef.current) return
     setIsMatchingLoading(true)
     isMatchingRef.current = true
-    setMatching(true)
-    setMatchTimer(0)
-    matchTimerRef.current = setInterval(() => setMatchTimer((seconds) => seconds + 1), 1000)
-    socketRef.current?.emit("match:join", {
-      userId: session?.user?.id ?? "unknown",
-      nickname: session?.user?.name ?? session?.user?.nickname ?? "익명",
-      region: userProfile.region,
-      gender: userProfile.gender,
-      preferGender: matchGenderPref,
-    })
+    beginMatchingState()
+    socketRef.current?.emit("match:join", buildMatchPayload())
     setIsMatchingLoading(false)
-  }, [isMatchingLoading, matchGenderPref, session, socketRef, userProfile.gender, userProfile.region])
+  }, [beginMatchingState, buildMatchPayload, isMatchingLoading, socketRef])
 
   const cancelMatching = useCallback(() => {
     isMatchingRef.current = false
     setMatching(false)
-    if (matchTimerRef.current) clearInterval(matchTimerRef.current)
+    if (matchTimerRef.current) {
+      clearInterval(matchTimerRef.current)
+      matchTimerRef.current = null
+    }
     socketRef.current?.emit("match:cancel")
   }, [socketRef])
 
   const nextMatch = useCallback(() => {
     isMatchingRef.current = true
-    socketRef.current?.emit("match:next", {
-      userId: session?.user?.id ?? "unknown",
-      nickname: session?.user?.name ?? session?.user?.nickname ?? "익명",
-      region: userProfile.region,
-      gender: userProfile.gender,
-      preferGender: matchGenderPref,
-    })
     cleanupWebRTC()
     setInCall(false)
     setActivePeer(null)
     activePeerSocketIdRef.current = null
-    setMatching(true)
-    setMatchTimer(0)
-    matchTimerRef.current = setInterval(() => setMatchTimer((seconds) => seconds + 1), 1000)
+    beginMatchingState()
+    socketRef.current?.emit("match:next", buildMatchPayload())
   }, [
     activePeerSocketIdRef,
+    beginMatchingState,
+    buildMatchPayload,
     cleanupWebRTC,
-    matchGenderPref,
-    session,
     setActivePeer,
     setInCall,
     socketRef,
-    userProfile.gender,
-    userProfile.region,
   ])
 
   return {

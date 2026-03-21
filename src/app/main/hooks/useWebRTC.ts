@@ -36,20 +36,32 @@ export function useWebRTC({
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const iceCandidateBuffer = useRef<RTCIceCandidateInit[]>([])
+  const remoteStreamRef = useRef<MediaStream | null>(null)
+
+  const resetPeerConnection = useCallback(() => {
+    const existingPeerConnection = peerConnectionRef.current
+    if (existingPeerConnection) {
+      existingPeerConnection.ontrack = null
+      existingPeerConnection.onicecandidate = null
+      existingPeerConnection.onconnectionstatechange = null
+      existingPeerConnection.oniceconnectionstatechange = null
+      existingPeerConnection.close()
+    }
+
+    peerConnectionRef.current = null
+    iceCandidateBuffer.current = []
+    remoteStreamRef.current = null
+    setRemoteStream(null)
+  }, [])
 
   const cleanupWebRTC = useCallback(() => {
-    peerConnectionRef.current?.close()
-    peerConnectionRef.current = null
+    resetPeerConnection()
     clearLocalStream()
-    iceCandidateBuffer.current = []
-    setRemoteStream(null)
-  }, [clearLocalStream])
+  }, [clearLocalStream, resetPeerConnection])
 
   const startWebRTC = useCallback(async (peerId: string, isInitiator: boolean) => {
     const socket = socketRef.current
     if (!socket) return
-
-    iceCandidateBuffer.current = []
 
     // 메인 진입 시 띄운 프리뷰 스트림을 우선 재사용
     const stream = await ensureCallStream()
@@ -74,10 +86,17 @@ export function useWebRTC({
       }
     } catch {}
 
+    resetPeerConnection()
+
     const pc = new RTCPeerConnection({ iceServers })
     peerConnectionRef.current = pc
+    remoteStreamRef.current = new MediaStream()
+    setRemoteStream(remoteStreamRef.current)
 
-    const streamToSend = filteredStreamRef.current ?? localStreamRef.current
+    const hasLiveFilteredVideo = Boolean(
+      filteredStreamRef.current?.getVideoTracks().some((track) => track.readyState === "live")
+    )
+    const streamToSend = hasLiveFilteredVideo ? filteredStreamRef.current : localStreamRef.current
     streamToSend?.getVideoTracks().forEach((track) => pc.addTrack(track, streamToSend))
 
     if (localStreamRef.current && streamToSend !== localStreamRef.current) {
@@ -90,8 +109,22 @@ export function useWebRTC({
 
     // 상대방 스트림 수신 — state로 저장해 useEffect가 video에 연결
     pc.ontrack = (event) => {
-      const remote = event.streams[0] ?? new MediaStream([event.track])
-      setRemoteStream(remote)
+      const nextRemoteStream = remoteStreamRef.current ?? new MediaStream()
+      const hasTrack = nextRemoteStream.getTracks().some((track) => track.id === event.track.id)
+
+      if (!hasTrack) {
+        nextRemoteStream.addTrack(event.track)
+      }
+
+      remoteStreamRef.current = nextRemoteStream
+      if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== nextRemoteStream) {
+        remoteVideoRef.current.srcObject = nextRemoteStream
+      }
+
+      console.info("[webrtc] remote track received", {
+        peerId,
+        kind: event.track.kind,
+      })
     }
 
     pc.onicecandidate = (event) => {
@@ -100,12 +133,26 @@ export function useWebRTC({
       }
     }
 
+    pc.onconnectionstatechange = () => {
+      console.info("[webrtc] connection state changed", {
+        peerId,
+        state: pc.connectionState,
+      })
+    }
+
+    pc.oniceconnectionstatechange = () => {
+      console.info("[webrtc] ice connection state changed", {
+        peerId,
+        state: pc.iceConnectionState,
+      })
+    }
+
     if (isInitiator) {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       socket.emit("webrtc:offer", { targetId: peerId, sdp: pc.localDescription })
     }
-  }, [cancelMatching, ensureCallStream, filteredStreamRef, localStreamRef, showToast, socketRef])
+  }, [cancelMatching, ensureCallStream, filteredStreamRef, localStreamRef, remoteVideoRef, resetPeerConnection, showToast, socketRef])
 
   return {
     remoteStream,

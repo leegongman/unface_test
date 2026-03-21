@@ -69,7 +69,7 @@ export default function MainPage() {
   const [friendSubTab, setFriendSubTab] = useState<"list" | "received" | "sent">("list")
   const [receivedRequests, setReceivedRequests] = useState<Array<{ id: string; sender: { id: string; nickname: string | null } }>>([])
   const [sentRequests, setSentRequests] = useState<Array<{ id: string; receiver: { id: string; nickname: string | null } }>>([])
-  const [userProfile, setUserProfile] = useState<{ region: string; gender: string }>({ region: "아시아", gender: "OTHER" })
+  const [userProfile, setUserProfile] = useState<{ region: string; gender: string }>({ region: "AS", gender: "OTHER" })
   const [isAddFriendLoading, setIsAddFriendLoading] = useState(false)
   const [isReportLoading, setIsReportLoading] = useState(false)
   const [isPaymentLoading, setIsPaymentLoading] = useState(false)
@@ -125,7 +125,7 @@ export default function MainPage() {
         if (avatarsRes.ok) { const data: { avatars?: AvatarResponseItem[] } = await avatarsRes.json(); const map: Record<string, string> = {}; for (const avatar of data.avatars ?? []) map[avatar.name] = avatar.id; setAvatarIdByName(map) }
         if (meRes.ok) {
           const me: MeResponse = await meRes.json()
-          setUserProfile({ region: me.countryCode ?? "아시아", gender: me.gender ?? "OTHER" })
+          setUserProfile({ region: me.countryCode ?? "AS", gender: me.gender ?? "OTHER" })
           setProfileSummary({ countryCode: me.countryCode ?? "AS", language: me.language ?? "ko", gender: me.gender ?? "OTHER", subscription: me.subscription ? { name: me.subscription.name, matchLimitDaily: me.subscription.matchLimitDaily, genderFilter: me.subscription.genderFilter, voiceFilter: me.subscription.voiceFilter, translation: me.subscription.translation, premiumAvatars: me.subscription.premiumAvatars } : null })
           const owned = new Set<string>(); for (const userAvatar of me.userAvatars ?? []) if (userAvatar.avatar?.name) owned.add(userAvatar.avatar.name); setOwnedAvatarNames(owned)
           const equippedAvatarName = me.equippedAvatar?.name
@@ -170,7 +170,20 @@ export default function MainPage() {
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [inCall])
-  useSocket({ socketRef, activePeerSocketIdRef, startWebRTC, cleanupWebRTC, prepareIdlePreview, showToast, setInCall, setActivePeer, setCallTimer, callTimerRef, setMessages, setFriendRequest, iceCandidateBuffer, peerConnectionRef, setMatching, matchTimerRef, isMatchingRef })
+
+  const queueNextMatch = useCallback(() => {
+    if (isMatchingRef.current) return
+
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current)
+      callTimerRef.current = null
+    }
+
+    setCallTimer(0)
+    nextMatch()
+  }, [isMatchingRef, nextMatch])
+
+  useSocket({ socketRef, activePeerSocketIdRef, startWebRTC, cleanupWebRTC, rematchAfterCallEnd: queueNextMatch, showToast, setInCall, setActivePeer, setCallTimer, callTimerRef, setMessages, setFriendRequest, iceCandidateBuffer, peerConnectionRef, setMatching, matchTimerRef, isMatchingRef })
 
   const togglePanel = (panel: ActivePanel) => { if (activePanel === panel) { setActivePanel(null); setTabOpen(false) } else { setActivePanel(panel); setTabOpen(false) } }
   const switchTab = (tab: ActiveTab) => { if (tabOpen && activeTab === tab) { setTabOpen(false); setChatView(null); return } setActiveTab(tab); setTabOpen(true); setActivePanel(null); setChatView(null) }
@@ -219,20 +232,19 @@ export default function MainPage() {
       setIsReportLoading(false)
     }
   }
-  const endCall = async () => {
-    isMatchingRef.current = false
-    socketRef.current?.emit("call:end")
-    cleanupWebRTC()
-    setInCall(false)
-    activePeerSocketIdRef.current = null
-    if (callTimerRef.current) clearInterval(callTimerRef.current)
-    if (activePeer) {
-      await fetch("/api/calls", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ peerId: activePeer.id, durationSec: callTimer }) })
+  const endCall = () => {
+    const peerId = activePeer?.id ?? null
+    const durationSec = callTimer
+
+    queueNextMatch()
+
+    if (!peerId) return
+
+    void (async () => {
+      await fetch("/api/calls", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ peerId, durationSec }) })
       const callsRes = await fetch("/api/calls/recent")
       if (callsRes.ok) { const data: RecentCallsResponse = await callsRes.json(); setRecentCalls(mapRecentCalls(data.calls ?? [])) }
-    }
-    setActivePeer(null)
-    void prepareIdlePreview()
+    })()
   }
   const handleSelectAvatar = async (index: number) => {
     const avatar = AVATARS[index]
@@ -306,7 +318,7 @@ export default function MainPage() {
             <RecentCallsPanel isOpen={tabOpen && activeTab === "recent"} recentCalls={recentCalls} />
             <FriendsPanel isOpen={tabOpen && activeTab === "friends"} friends={friends} receivedRequests={receivedRequests} sentRequests={sentRequests} friendSubTab={friendSubTab} onSetFriendSubTab={setFriendSubTab} chatView={chatView} onSetChatView={setChatView} messages={messages} chatMsg={chatMsg} onSetChatMsg={setChatMsg} onSendMsg={sendMsg} onAcceptRequest={handleAcceptRequest} onRejectRequest={handleRejectRequest} onShowToast={showToast} />
             <SlidePanel activePanel={activePanel} avatarTab={avatarTab} onSetAvatarTab={setAvatarTab} voiceTab={voiceTab} onSetVoiceTab={setVoiceTab} selectedAvatar={selectedAvatar} onSelectAvatar={handleSelectAvatar} selectedCeleb={selectedCeleb} onSelectCeleb={handleSelectCeleb} selectedVoice={selectedVoice} onSelectVoice={setSelectedVoice} selectedTranslate={selectedTranslate} onSelectTranslate={setSelectedTranslate} ownedAvatarNames={ownedAvatarNames} onOpenPayment={openPayment} />
-            <VideoArea inCall={inCall} matching={matching} localStream={localStream} remoteStream={remoteStream} localVideoRef={localVideoRef} canvasRef={canvasRef} remoteVideoRef={remoteVideoRef} micOff={micOff} camOff={camOff} isFilterActive={isFilterActive} onToggleMic={() => setMicOff((value) => !value)} onToggleCam={() => setCamOff((value) => !value)} selectedAvatar={selectedAvatar} activePeer={activePeer} callTimer={callTimer} onStartMatching={startMatching} onNextMatch={nextMatch} onEndCall={endCall} onOpenReport={() => setReportOpen(true)} onAddFriend={addFriend} isMatchingLoading={isMatchingLoading} isAddFriendLoading={isAddFriendLoading} matchingOverlay={<MatchingOverlay matchTimer={matchTimer} avatarEmoji={AVATARS[selectedAvatar].emoji} onCancel={cancelMatching} />} />
+            <VideoArea inCall={inCall} matching={matching} localStream={localStream} remoteStream={remoteStream} localVideoRef={localVideoRef} canvasRef={canvasRef} remoteVideoRef={remoteVideoRef} micOff={micOff} camOff={camOff} isFilterActive={isFilterActive} onToggleMic={() => setMicOff((value) => !value)} onToggleCam={() => setCamOff((value) => !value)} selectedAvatar={selectedAvatar} activePeer={activePeer} callTimer={callTimer} onStartMatching={startMatching} onNextMatch={queueNextMatch} onEndCall={endCall} onOpenReport={() => setReportOpen(true)} onAddFriend={addFriend} isMatchingLoading={isMatchingLoading} isAddFriendLoading={isAddFriendLoading} matchingOverlay={<MatchingOverlay matchTimer={matchTimer} avatarEmoji={AVATARS[selectedAvatar].emoji} onCancel={cancelMatching} />} />
           </div>
         </div>
       </div>

@@ -44,10 +44,8 @@ export default function OnboardingPage() {
 
   const toggleRegion = (r: string) => {
     setSelectedRegions(prev => {
-      const next = new Set(prev)
-      if (next.has(r)) next.delete(r)
-      else next.add(r)
-      return next
+      if (prev.has(r)) return new Set()
+      return new Set([r])
     })
     setRegionError(false)
   }
@@ -173,7 +171,7 @@ export default function OnboardingPage() {
           <div className="step-cont">
             <div className="step-header">
               <h1 className="step-q">어느 <span className="gradient-text">지역</span>과<br />연결될까요?</h1>
-              <p className="step-hint">복수 선택 가능해요. 지도에서 원하는 지역을 눌러보세요.</p>
+              <p className="step-hint">서버 대륙은 한 번만 선택할 수 있어요. 같은 서버 대륙 안에서 먼저 매칭돼요.</p>
             </div>
             <div className="map-wrap" style={{ position: "relative" }} ref={mapWrapRef}>
               <div className={`map-tooltip${tooltip.visible ? " visible" : ""}`} style={{ left: tooltip.x, top: tooltip.y }}>
@@ -306,7 +304,7 @@ export default function OnboardingPage() {
                   ))
                 }
               </div>
-              <p className="map-tip">전체 선택 시 랜덤 매칭</p>
+              <p className="map-tip">선택한 서버 대륙이 이후 매칭 기본 조건으로 사용돼요.</p>
               {regionError && <div className="step-error">지역을 선택하지 않아서 다음으로 넘어갈 수 없어요.</div>}
             </div>
             <div className="step-footer">
