@@ -57,7 +57,7 @@ export default function MainPage() {
   const [matchTimer, setMatchTimer] = useState(0)
   const [inCall, setInCall] = useState(false)
   const [callTimer, setCallTimer] = useState(0)
-  const [credits, setCredits] = useState(50)
+  const [credits, setCredits] = useState(0)
   const [chatMsg, setChatMsg] = useState("")
   const [messages, setMessages] = useState<Array<{ mine: boolean; text: string; time: string }>>([
     { mine: false, text: "안녕하세요! 👋", time: "오후 2:14" },
