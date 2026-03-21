@@ -1,13 +1,10 @@
+// 변경 이유: Next.js 16 빌드에서 useSearchParams 사용 시 Suspense 경계가 필요해 로그인 페이지 래퍼를 추가했습니다.
 "use client"
-import { Suspense, useState, useEffect, useRef } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { signIn, useSession } from "next-auth/react"
 
 type View = "v-login" | "v-signup" | "v-forgot1" | "v-forgot2" | "v-forgot3" | "v-forgot4"
-
-function LoginPageFallback() {
-  return <div style={{ minHeight: "100vh", background: "#080810" }} />
-}
 
 function LoginPageContent() {
   const router = useRouter()
@@ -42,6 +39,7 @@ function LoginPageContent() {
   // login / signup 에러 메시지
   const [lLoginErr, setLLoginErr] = useState("")
   const [sSignupErr, setSSignupErr] = useState("")
+  const [oauthNotice, setOauthNotice] = useState("")
 
   // forgot password
   const [fEmail, setFEmail] = useState("")
@@ -74,7 +72,7 @@ function LoginPageContent() {
         })
         .catch(() => router.push("/onboarding"))
     }
-  }, [session, router])
+  }, [session, router, searchParams])
 
   useEffect(() => {
     const saved = localStorage.getItem("unface-theme") || "dark"
@@ -91,6 +89,38 @@ function LoginPageContent() {
   function show(id: View) { setView(id) }
   function goHome() { router.push("/") }
   function goNext() { router.push("/onboarding") }
+  function getGoogleCallbackUrl() {
+    if (typeof window === "undefined") return "/api/auth/redirect"
+    return new URL("/api/auth/redirect", window.location.origin).toString()
+  }
+  function isPrivateIpHost(hostname: string) {
+    return /^(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)$/.test(hostname)
+  }
+  function getGoogleOAuthNotice() {
+    if (typeof window === "undefined") return ""
+    const { protocol, hostname } = window.location
+    const normalizedHost = hostname.toLowerCase()
+    const isLocalhost =
+      normalizedHost === "localhost" ||
+      normalizedHost === "127.0.0.1" ||
+      normalizedHost === "::1" ||
+      normalizedHost === "[::1]"
+
+    if (isLocalhost) return ""
+    if (isPrivateIpHost(normalizedHost)) {
+      return "Google 로그인은 사설 IP 주소(예: 192.168.x.x)에서 차단돼요. 휴대폰 테스트는 HTTPS 도메인 또는 터널 주소가 필요해요."
+    }
+    if (protocol !== "https:") {
+      return "Google 로그인은 HTTPS 주소에서만 안정적으로 동작해요. localhost가 아니라면 HTTPS 도메인으로 접속해주세요."
+    }
+    return ""
+  }
+  function startGoogleSignIn() {
+    const notice = getGoogleOAuthNotice()
+    setOauthNotice(notice)
+    if (notice) return
+    void signIn("google", { callbackUrl: getGoogleCallbackUrl() })
+  }
 
   async function doLogin() {
     const e = lEmail.trim()
@@ -133,7 +163,7 @@ function LoginPageContent() {
         show("v-login")
         return
       }
-    } catch (_) {
+    } catch {
       setSSignupErr("오류가 발생했어요. 다시 시도해주세요.")
       return
     }
@@ -215,7 +245,6 @@ function LoginPageContent() {
 
   return (
     <>
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
       <style>{`
     :root[data-theme="dark"]{
       --text-primary:#ffffff; --text-sub:rgba(255,255,255,0.52); --text-dim:rgba(255,255,255,0.28);
@@ -385,11 +414,12 @@ function LoginPageContent() {
               <div className="divider-line"></div><span className="divider-label">간편 로그인</span><div className="divider-line"></div>
             </div>
             <div className="social-btn-row">
-              <div className="social-login-btn" onClick={() => signIn("google", { callbackUrl: "/api/auth/redirect" })}><div className="s-icon s-g"><svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.1 0 5.8 1.1 8 2.9l6-6C34.5 3.1 29.6 1 24 1 14.8 1 7 6.6 3.7 14.4l7 5.4C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7C43.7 37.4 46.5 31.4 46.5 24.5z"/><path fill="#FBBC05" d="M10.7 28.2A14.5 14.5 0 0 1 9.5 24c0-1.5.3-2.9.7-4.2l-7-5.4A23.9 23.9 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.2-6.6z"/><path fill="#34A853" d="M24 47c5.8 0 10.7-1.9 14.3-5.2l-7.4-5.7c-1.9 1.3-4.3 2-6.9 2-6.3 0-11.6-4.1-13.3-9.9l-8.2 6.6C7 41.4 14.8 47 24 47z"/></svg></div><span className="s-label">Google로 로그인</span><span className="s-arrow">›</span></div>
+              <div className="social-login-btn" onClick={startGoogleSignIn}><div className="s-icon s-g"><svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.1 0 5.8 1.1 8 2.9l6-6C34.5 3.1 29.6 1 24 1 14.8 1 7 6.6 3.7 14.4l7 5.4C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7C43.7 37.4 46.5 31.4 46.5 24.5z"/><path fill="#FBBC05" d="M10.7 28.2A14.5 14.5 0 0 1 9.5 24c0-1.5.3-2.9.7-4.2l-7-5.4A23.9 23.9 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.2-6.6z"/><path fill="#34A853" d="M24 47c5.8 0 10.7-1.9 14.3-5.2l-7.4-5.7c-1.9 1.3-4.3 2-6.9 2-6.3 0-11.6-4.1-13.3-9.9l-8.2 6.6C7 41.4 14.8 47 24 47z"/></svg></div><span className="s-label">Google로 로그인</span><span className="s-arrow">›</span></div>
               <div className="social-login-btn" onClick={goNext}><div className="s-icon s-i"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.366.062 2.633.334 3.608 1.308.975.975 1.246 2.242 1.308 3.608.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.062 1.366-.334 2.633-1.308 3.608-.975.975-2.242 1.246-3.608 1.308-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.366-.062-2.633-.334-3.608-1.308-.975-.975-1.246-2.242-1.308-3.608C2.175 15.584 2.163 15.204 2.163 12s.012-3.584.07-4.85c.062-1.366.334-2.633 1.308-3.608.975-.975 2.242-1.246 3.608-1.308C8.416 2.175 8.796 2.163 12 2.163zm0-2.163C8.741 0 8.332.014 7.052.072 5.197.157 3.355.673 1.924 2.104.493 3.535-.023 5.377.072 7.232c-.058 1.28-.072 1.689-.072 4.948s.014 3.668.072 4.948c.085 1.855.601 3.697 2.032 5.128 1.431 1.431 3.273 1.947 5.128 2.032 1.28.058 1.689.072 4.948.072s3.668-.014 4.948-.072c1.855-.085 3.697-.601 5.128-2.032 1.431-1.431 1.947-3.273 2.032-5.128.058-1.28.072-1.689.072-4.948s-.014-3.668-.072-4.948c-.085-1.855-.601-3.697-2.032-5.128C20.545.673 18.703.157 16.848.072 15.568.014 15.159 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zm0 10.162a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg></div><span className="s-label">Instagram으로 로그인</span><span className="s-arrow">›</span></div>
               <div className="social-login-btn" onClick={goNext}><div className="s-icon s-t"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></div><span className="s-label">Telegram으로 로그인</span><span className="s-arrow">›</span></div>
               <div className="social-login-btn" onClick={goNext}><div className="s-icon s-x"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></div><span className="s-label">X로 로그인</span><span className="s-arrow">›</span></div>
             </div>
+            {oauthNotice && <span className="input-error show">{oauthNotice}</span>}
             <p className="terms">계속 진행하면 unface의 <a>서비스 이용약관</a> 및 <a>개인정보 처리방침</a>에 동의하는 것으로 간주됩니다.</p>
           </div>
         )}
@@ -448,11 +478,12 @@ function LoginPageContent() {
               <div className="divider-line"></div><span className="divider-label">간편 가입</span><div className="divider-line"></div>
             </div>
             <div className="social-btn-row">
-              <div className="social-login-btn" onClick={() => signIn("google", { callbackUrl: "/api/auth/redirect" })}><div className="s-icon s-g"><svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.1 0 5.8 1.1 8 2.9l6-6C34.5 3.1 29.6 1 24 1 14.8 1 7 6.6 3.7 14.4l7 5.4C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7C43.7 37.4 46.5 31.4 46.5 24.5z"/><path fill="#FBBC05" d="M10.7 28.2A14.5 14.5 0 0 1 9.5 24c0-1.5.3-2.9.7-4.2l-7-5.4A23.9 23.9 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.2-6.6z"/><path fill="#34A853" d="M24 47c5.8 0 10.7-1.9 14.3-5.2l-7.4-5.7c-1.9 1.3-4.3 2-6.9 2-6.3 0-11.6-4.1-13.3-9.9l-8.2 6.6C7 41.4 14.8 47 24 47z"/></svg></div><span className="s-label">Google로 가입</span><span className="s-arrow">›</span></div>
+              <div className="social-login-btn" onClick={startGoogleSignIn}><div className="s-icon s-g"><svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.1 0 5.8 1.1 8 2.9l6-6C34.5 3.1 29.6 1 24 1 14.8 1 7 6.6 3.7 14.4l7 5.4C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7C43.7 37.4 46.5 31.4 46.5 24.5z"/><path fill="#FBBC05" d="M10.7 28.2A14.5 14.5 0 0 1 9.5 24c0-1.5.3-2.9.7-4.2l-7-5.4A23.9 23.9 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.2-6.6z"/><path fill="#34A853" d="M24 47c5.8 0 10.7-1.9 14.3-5.2l-7.4-5.7c-1.9 1.3-4.3 2-6.9 2-6.3 0-11.6-4.1-13.3-9.9l-8.2 6.6C7 41.4 14.8 47 24 47z"/></svg></div><span className="s-label">Google로 가입</span><span className="s-arrow">›</span></div>
               <div className="social-login-btn" onClick={goNext}><div className="s-icon s-i"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.366.062 2.633.334 3.608 1.308.975.975 1.246 2.242 1.308 3.608.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.062 1.366-.334 2.633-1.308 3.608-.975.975-2.242 1.246-3.608 1.308-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.366-.062-2.633-.334-3.608-1.308-.975-.975-1.246-2.242-1.308-3.608C2.175 15.584 2.163 15.204 2.163 12s.012-3.584.07-4.85c.062-1.366.334-2.633 1.308-3.608.975-.975 2.242-1.246 3.608-1.308C8.416 2.175 8.796 2.163 12 2.163zm0-2.163C8.741 0 8.332.014 7.052.072 5.197.157 3.355.673 1.924 2.104.493 3.535-.023 5.377.072 7.232c-.058 1.28-.072 1.689-.072 4.948s.014 3.668.072 4.948c.085 1.855.601 3.697 2.032 5.128 1.431 1.431 3.273 1.947 5.128 2.032 1.28.058 1.689.072 4.948.072s3.668-.014 4.948-.072c1.855-.085 3.697-.601 5.128-2.032 1.431-1.431 1.947-3.273 2.032-5.128.058-1.28.072-1.689.072-4.948s-.014-3.668-.072-4.948c-.085-1.855-.601-3.697-2.032-5.128C20.545.673 18.703.157 16.848.072 15.568.014 15.159 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zm0 10.162a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg></div><span className="s-label">Instagram으로 가입</span><span className="s-arrow">›</span></div>
               <div className="social-login-btn" onClick={goNext}><div className="s-icon s-t"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></div><span className="s-label">Telegram으로 가입</span><span className="s-arrow">›</span></div>
               <div className="social-login-btn" onClick={goNext}><div className="s-icon s-x"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></div><span className="s-label">X로 가입</span><span className="s-arrow">›</span></div>
             </div>
+            {oauthNotice && <span className="input-error show">{oauthNotice}</span>}
             <p className="terms">가입하면 unface의 <a>서비스 이용약관</a> 및 <a>개인정보 처리방침</a>에 동의하는 것으로 간주됩니다.</p>
           </div>
         )}
@@ -536,7 +567,7 @@ function LoginPageContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<LoginPageFallback />}>
+    <Suspense fallback={null}>
       <LoginPageContent />
     </Suspense>
   )

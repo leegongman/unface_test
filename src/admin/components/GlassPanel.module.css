@@ -1,0 +1,45 @@
+.panel {
+  border: 1px solid var(--card-border);
+  background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04),
+      rgba(255, 255, 255, 0.03)
+    )
+    padding-box;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px 18px 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--text-sub);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.content {
+  padding: 18px;
+}

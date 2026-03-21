@@ -1,8 +1,8 @@
 "use client"
+import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { SessionProvider } from "next-auth/react"
 import { useEffect } from "react"
-import { useRouter } from "next/navigation"
 
 const avatars = [
   { id: "avatar-tiger", name: "호랑이 아바타", price: 3.99, image: "🐯", category: "ANIMAL" },
@@ -10,6 +10,10 @@ const avatars = [
   { id: "avatar-mask", name: "미스터리 가면", price: 4.99, image: "🎭", category: "MASK" },
   { id: "avatar-robot", name: "로봇 아바타", price: 5.99, image: "🤖", category: "MASK" },
 ]
+
+type CheckoutResponse = {
+  url?: string
+}
 
 function ShopContent() {
   const { data: session } = useSession()
@@ -34,14 +38,14 @@ function ShopContent() {
         itemType: "avatar",
         refName: avatar.name,
         avatarCategory: avatar.category,
-        userId: (session.user as any).id,
+        userId: session.user.id,
       }),
     })
 
-    const data = await res.json()
+    const data: CheckoutResponse = await res.json()
 
     if (data.url) {
-      window.location.href = data.url
+      router.push(data.url)
     } else {
       alert("결제 준비 중 오류가 발생했습니다. 다시 시도해주세요.")
     }

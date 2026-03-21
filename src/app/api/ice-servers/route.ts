@@ -1,4 +1,7 @@
+// 변경 이유: donor의 다중 TURN endpoint 설정(TURN_URLS)을 현재 보호 API 구조에 맞춰 이식했습니다.
 import { NextResponse } from "next/server"
+
+import { auth } from "@/lib/auth"
 
 function getTurnUrls() {
   const raw = process.env.TURN_URLS ?? process.env.TURN_URL ?? ""
@@ -13,6 +16,11 @@ function getTurnUrls() {
 }
 
 export async function GET() {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },

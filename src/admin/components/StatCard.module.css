@@ -1,0 +1,74 @@
+.card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 18px;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.045),
+    rgba(255, 255, 255, 0.03)
+  );
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0.95;
+}
+
+.mint::before {
+  background: linear-gradient(90deg, #22d3ee, rgba(34, 211, 238, 0));
+}
+
+.purple::before {
+  background: linear-gradient(90deg, #a78bfa, rgba(167, 139, 250, 0));
+}
+
+.amber::before {
+  background: linear-gradient(90deg, #f59e0b, rgba(245, 158, 11, 0));
+}
+
+.rose::before {
+  background: linear-gradient(90deg, #fb7185, rgba(251, 113, 133, 0));
+}
+
+.topRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.label {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trend {
+  color: #22d3ee;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.value {
+  display: block;
+  margin-top: 14px;
+  color: var(--text-primary);
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.description {
+  margin: 10px 0 0;
+  color: var(--text-sub);
+  font-size: 12.5px;
+  line-height: 1.55;
+}

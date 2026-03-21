@@ -1,35 +1,29 @@
 import "dotenv/config"
 import { createServer } from "http"
-import { Server } from "socket.io"
 import crypto from "crypto"
-
-const HOST = process.env.SOCKET_HOST ?? "127.0.0.1"
-const PORT = Number(process.env.SOCKET_PORT ?? "3001")
-const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL
-const AUTH_SECRET = process.env.NEXTAUTH_SECRET
-
-if (!Number.isInteger(PORT) || PORT <= 0 || PORT > 65535) {
-  throw new Error("Invalid SOCKET_PORT. Expected an integer between 1 and 65535.")
-}
-
-if (!APP_ORIGIN) {
-  throw new Error("NEXT_PUBLIC_APP_URL or NEXTAUTH_URL is required for socket server CORS.")
-}
-
-try {
-  new URL(APP_ORIGIN)
-} catch {
-  throw new Error("Invalid NEXT_PUBLIC_APP_URL/NEXTAUTH_URL. Expected an absolute URL.")
-}
-
-if (!AUTH_SECRET) {
-  throw new Error("NEXTAUTH_SECRET is required for socket server authentication.")
-}
+import { Server, type Socket } from "socket.io"
 
 const httpServer = createServer()
+const HOST = process.env.SOCKET_HOST ?? "0.0.0.0"
+const PORT = Number(process.env.SOCKET_PORT ?? 3001)
+
+const allowedOrigins = new Set(
+  (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+)
+
 const io = new Server(httpServer, {
-  path: "/socket.io",
-  cors: { origin: APP_ORIGIN, methods: ["GET", "POST"] },
+  cors: {
+    origin(origin, callback) {
+      if (!origin) return callback(null, true)
+      if (process.env.NODE_ENV !== "production") return callback(null, true)
+      if (allowedOrigins.has(origin)) return callback(null, true)
+      return callback(new Error("Origin not allowed"))
+    },
+    methods: ["GET", "POST"],
+  },
 })
 
 interface QueueEntry {
@@ -45,7 +39,25 @@ const matchQueue: QueueEntry[] = []
 const activeCalls: Map<string, string> = new Map() // socketId → partnerSocketId
 const onlineUsers: Map<string, string> = new Map() // socketId → userId
 
-function handleMatchJoin(socket: any, data: { userId: string; nickname: string; region: string; gender: string; preferGender?: string }) {
+interface MatchJoinPayload {
+  userId: string
+  nickname: string
+  region: string
+  gender: string
+  preferGender?: string
+}
+
+interface WebRtcOfferPayload {
+  targetId: string
+  sdp: RTCSessionDescriptionInit
+}
+
+interface WebRtcIcePayload {
+  targetId: string
+  candidate: RTCIceCandidateInit
+}
+
+function handleMatchJoin(socket: Socket, data: MatchJoinPayload) {
   // 이미 대기 중이면 무시
   if (matchQueue.find((q) => q.socketId === socket.id)) return
 
@@ -108,8 +120,11 @@ io.use((socket, next) => {
   if (parts.length !== 3) return next(new Error("Invalid token format"))
 
   const [userId, timestamp, sig] = parts
+  const secret = process.env.NEXTAUTH_SECRET
+  if (!secret) return next(new Error("Server misconfigured"))
+
   const payload = `${userId}:${timestamp}`
-  const expectedSig = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("hex")
+  const expectedSig = crypto.createHmac("sha256", secret).update(payload).digest("hex")
 
   try {
     if (!crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expectedSig, "hex"))) {
@@ -143,15 +158,15 @@ io.on("connection", (socket) => {
     if (idx !== -1) matchQueue.splice(idx, 1)
   })
 
-  socket.on("webrtc:offer", (data: { targetId: string; sdp: any }) => {
+  socket.on("webrtc:offer", (data: WebRtcOfferPayload) => {
     io.to(data.targetId).emit("webrtc:offer", { from: socket.id, sdp: data.sdp })
   })
 
-  socket.on("webrtc:answer", (data: { targetId: string; sdp: any }) => {
+  socket.on("webrtc:answer", (data: WebRtcOfferPayload) => {
     io.to(data.targetId).emit("webrtc:answer", { from: socket.id, sdp: data.sdp })
   })
 
-  socket.on("webrtc:ice", (data: { targetId: string; candidate: any }) => {
+  socket.on("webrtc:ice", (data: WebRtcIcePayload) => {
     io.to(data.targetId).emit("webrtc:ice", { from: socket.id, candidate: data.candidate })
   })
 
@@ -227,5 +242,5 @@ io.on("connection", (socket) => {
 })
 
 httpServer.listen(PORT, HOST, () => {
-  console.log(`Socket.io server listening on ${HOST}:${PORT} (CORS origin: ${APP_ORIGIN})`)
+  console.log(`Socket.io server running on http://${HOST}:${PORT}`)
 })

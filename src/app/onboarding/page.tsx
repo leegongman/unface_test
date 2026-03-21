@@ -3,7 +3,6 @@ import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 
-const REGIONS = ["북아메리카", "남아메리카", "유럽", "아프리카", "아시아", "오세아니아"] as const
 const REGION_EMOJI: Record<string, string> = {
   "북아메리카": "🌎", "남아메리카": "🌎", "유럽": "🌍", "아프리카": "🌍", "아시아": "🌏", "오세아니아": "🌏"
 }
@@ -11,7 +10,10 @@ const REGION_EMOJI: Record<string, string> = {
 export default function OnboardingPage() {
   const router = useRouter()
   const { data: session } = useSession()
-  const [theme, setTheme] = useState("dark")
+  const [theme, setTheme] = useState<string>(() => {
+    if (typeof window === "undefined") return "dark"
+    return localStorage.getItem("unface-theme") || "dark"
+  })
   const [step, setStep] = useState(1)
   const [selectedRegions, setSelectedRegions] = useState<Set<string>>(new Set())
   const [gender, setGender] = useState<string | null>(null)
@@ -20,11 +22,6 @@ export default function OnboardingPage() {
   const [genderError, setGenderError] = useState(false)
   const [tooltip, setTooltip] = useState({ visible: false, text: "", x: 0, y: 0 })
   const mapWrapRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    const saved = localStorage.getItem("unface-theme") || "dark"
-    setTheme(saved)
-  }, [])
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme)
@@ -158,8 +155,6 @@ export default function OnboardingPage() {
         .btn-next:disabled{opacity:0.35;cursor:not-allowed;box-shadow:none}
         @media(max-width:480px){.top-bar{padding:20px 24px}.progress-wrap{padding:0 24px}.gender-grid{gap:8px}.gender-icon{width:52px;height:52px}}
       `}</style>
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
-
       <div className="top-bar">
         <span className="logo">unface</span>
         <button className="theme-toggle" onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}>
@@ -195,7 +190,7 @@ export default function OnboardingPage() {
                     const rect = mapWrapRef.current?.getBoundingClientRect()
                     if (!rect) return
                     let x = e.clientX - rect.left + 12
-                    let y = e.clientY - rect.top - 38
+                    const y = e.clientY - rect.top - 38
                     const tw = 120
                     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8
                     setTooltip(t => ({ ...t, x, y }))
@@ -212,7 +207,7 @@ export default function OnboardingPage() {
                     const rect = mapWrapRef.current?.getBoundingClientRect()
                     if (!rect) return
                     let x = e.clientX - rect.left + 12
-                    let y = e.clientY - rect.top - 38
+                    const y = e.clientY - rect.top - 38
                     const tw = 120
                     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8
                     setTooltip(t => ({ ...t, x, y }))
@@ -229,7 +224,7 @@ export default function OnboardingPage() {
                     const rect = mapWrapRef.current?.getBoundingClientRect()
                     if (!rect) return
                     let x = e.clientX - rect.left + 12
-                    let y = e.clientY - rect.top - 38
+                    const y = e.clientY - rect.top - 38
                     const tw = 120
                     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8
                     setTooltip(t => ({ ...t, x, y }))
@@ -246,7 +241,7 @@ export default function OnboardingPage() {
                     const rect = mapWrapRef.current?.getBoundingClientRect()
                     if (!rect) return
                     let x = e.clientX - rect.left + 12
-                    let y = e.clientY - rect.top - 38
+                    const y = e.clientY - rect.top - 38
                     const tw = 120
                     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8
                     setTooltip(t => ({ ...t, x, y }))
@@ -263,7 +258,7 @@ export default function OnboardingPage() {
                     const rect = mapWrapRef.current?.getBoundingClientRect()
                     if (!rect) return
                     let x = e.clientX - rect.left + 12
-                    let y = e.clientY - rect.top - 38
+                    const y = e.clientY - rect.top - 38
                     const tw = 120
                     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8
                     setTooltip(t => ({ ...t, x, y }))
@@ -280,7 +275,7 @@ export default function OnboardingPage() {
                     const rect = mapWrapRef.current?.getBoundingClientRect()
                     if (!rect) return
                     let x = e.clientX - rect.left + 12
-                    let y = e.clientY - rect.top - 38
+                    const y = e.clientY - rect.top - 38
                     const tw = 120
                     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8
                     setTooltip(t => ({ ...t, x, y }))

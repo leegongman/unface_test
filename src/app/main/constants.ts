@@ -1,0 +1,104 @@
+// 파일 경로: src/app/main/constants.ts
+import type { FriendRecord, RecentCallRecord } from "./types"
+
+export const AVATARS = [
+  { emoji: "😶", name: "기본", price: "$1", category: "MASK", free: true },
+  { emoji: "🐱", name: "고양이", price: "$1", category: "ANIMAL", free: true },
+  { emoji: "🦊", name: "여우", price: "$1", category: "ANIMAL", free: true },
+  { emoji: "🤖", name: "로봇", price: "$1", category: "MASK", free: true },
+  { emoji: "🐙", name: "문어", price: "$1", category: "ANIMAL", free: true },
+  { emoji: "🦁", name: "사자", price: "$1", category: "ANIMAL", free: true },
+  { emoji: "👾", name: "에일리언", price: "$1", category: "MASK", free: true },
+  { emoji: "🎃", name: "호박", price: "$1", category: "MASK", free: true },
+  { emoji: "🧸", name: "곰인형", price: "$1", category: "ANIMAL", free: true },
+]
+
+export const CELEBS = [
+  { name: "장원영", group: "아이브", price: "$1", face: "✦", grad: "linear-gradient(135deg,#fde68a,#f59e0b)" },
+  { name: "뷔", group: "BTS", price: "$1", face: "✦", grad: "linear-gradient(135deg,#c4b5fd,#8b5cf6)" },
+  { name: "카리나", group: "에스파", price: "$1", face: "✦", grad: "linear-gradient(135deg,#fbcfe8,#ec4899)" },
+  { name: "차은우", group: "아스트로", price: "$1", face: "✦", grad: "linear-gradient(135deg,#a5f3fc,#06b6d4)" },
+  { name: "윈터", group: "에스파", price: "$1", face: "✦", grad: "linear-gradient(135deg,#bbf7d0,#22c55e)" },
+  { name: "지민", group: "BTS", price: "$1", face: "✦", grad: "linear-gradient(135deg,#fecaca,#ef4444)" },
+]
+
+export const VOICES = [
+  { dot: "🎙️", name: "원본", desc: "변조 없이 내 목소리 그대로" },
+  { dot: "🔵", name: "낮은 목소리", desc: "남성적인 저음으로 변환" },
+  { dot: "🩷", name: "높은 목소리", desc: "여성적인 고음으로 변환" },
+  { dot: "🤖", name: "로봇", desc: "기계음으로 완전 변환" },
+  { dot: "🧒", name: "어린이", desc: "귀엽고 높은 아이 목소리" },
+]
+
+export const LOCATION_LABELS: Record<string, { emoji: string; label: string }> = {
+  AS: { emoji: "🌏", label: "아시아" },
+  NA: { emoji: "🌎", label: "북아메리카" },
+  SA: { emoji: "🌎", label: "남아메리카" },
+  EU: { emoji: "🌍", label: "유럽" },
+  AF: { emoji: "🌍", label: "아프리카" },
+  OC: { emoji: "🌏", label: "오세아니아" },
+  KR: { emoji: "🇰🇷", label: "대한민국" },
+  US: { emoji: "🇺🇸", label: "미국" },
+  JP: { emoji: "🇯🇵", label: "일본" },
+  CN: { emoji: "🇨🇳", label: "중국" },
+}
+
+export const LANGUAGE_LABELS: Record<string, string> = {
+  ko: "한국어",
+  en: "영어",
+  ja: "일본어",
+  zh: "중국어",
+}
+
+export const GENDER_LABELS: Record<string, string> = {
+  MALE: "남성",
+  FEMALE: "여성",
+  OTHER: "상관없음",
+}
+
+export function getLocationLabel(code?: string | null) {
+  const normalized = code?.toUpperCase() ?? "AS"
+  const found = LOCATION_LABELS[normalized]
+  if (found) return `${found.emoji} ${found.label}`
+  return normalized
+}
+
+export function getRegionLabel(code?: string | null) {
+  const normalized = code?.toUpperCase() ?? "AS"
+  return LOCATION_LABELS[normalized]?.label ?? normalized
+}
+
+export function getLanguageLabel(language?: string | null) {
+  if (!language) return "한국어"
+  return LANGUAGE_LABELS[language] ?? language
+}
+
+export function getGenderLabel(gender?: string | null) {
+  if (!gender) return "상관없음"
+  return GENDER_LABELS[gender] ?? gender
+}
+
+export function fmtTimer(s: number) {
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+}
+
+export function mapRecentCalls(calls: RecentCallRecord[]) {
+  return calls.map((call) => ({
+    id: call.id,
+    name: call.peer?.nickname ?? "익명",
+    meta: call.peer?.countryCode ? call.peer.countryCode : "상관없음",
+    duration: call.durationSec != null ? fmtTimer(call.durationSec) : "00:00",
+  }))
+}
+
+export function mapFriends(friends: FriendRecord[]) {
+  return friends.map((friend) => ({
+    id: friend.id,
+    name: friend.nickname ?? "익명",
+    status: "온라인",
+    online: true,
+    emoji: "🙂",
+    countryCode: friend.countryCode ?? undefined,
+    gender: friend.gender ?? undefined,
+  }))
+}

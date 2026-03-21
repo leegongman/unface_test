@@ -1,16 +1,16 @@
 "use client"
-import { useState, useEffect } from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
 
 export default function LandingPage() {
   const router = useRouter()
-  const [theme, setThemeState] = useState("dark")
+  const [theme, setThemeState] = useState<string>(() => {
+    if (typeof window === "undefined") return "dark"
+    return localStorage.getItem("unface-theme") || "dark"
+  })
   const [liveCount, setLiveCount] = useState(3241)
-
-  useEffect(() => {
-    const saved = localStorage.getItem("unface-theme") || "dark"
-    setThemeState(saved)
-  }, [])
+  const heroImageSrc: string | null = null
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme)
@@ -35,7 +35,6 @@ export default function LandingPage() {
 
   return (
     <>
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
       <style>{`
     /* ─── CSS 변수 ─── */
     :root[data-theme="dark"] {
@@ -458,11 +457,15 @@ export default function LandingPage() {
       {/* 히어로 섹션 */}
       <section className="hero">
         {/* 캐릭터 이미지: img 태그로 원본 화질 유지 */}
-        <img
-          className="hero-img"
-          src=""
-          alt="unface 캐릭터"
-        />
+        {heroImageSrc ? (
+          <Image
+            className="hero-img"
+            src={heroImageSrc}
+            alt="unface 캐릭터"
+            width={960}
+            height={1200}
+          />
+        ) : null}
         {/* 왼쪽 텍스트 보호 오버레이 */}
         <div className="hero-overlay"></div>
         {/* 하단 페이드 */}

@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+// 변경 이유: 소켓 토큰 발급 API를 Auth.js v5 auth() 기반 세션 조회로 전환했습니다.
 import { createHmac } from "crypto"
 
+import { NextResponse } from "next/server"
+
+import { auth } from "@/lib/auth"
+
 export async function GET() {
-  const session = await getServerSession(authOptions)
+  const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
@@ -14,14 +16,13 @@ export async function GET() {
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 })
   }
 
-  const userId = (session.user as any).id
-  if (!userId) {
+  if (!session.user.id) {
     return NextResponse.json({ error: "User id not found" }, { status: 400 })
   }
 
   const timestamp = Date.now().toString()
-  const payload = `${userId}:${timestamp}`
+  const payload = `${session.user.id}:${timestamp}`
   const sig = createHmac("sha256", secret).update(payload).digest("hex")
 
-  return NextResponse.json({ token: `${userId}:${timestamp}:${sig}` })
+  return NextResponse.json({ token: `${session.user.id}:${timestamp}:${sig}` })
 }

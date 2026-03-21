@@ -1,0 +1,140 @@
+.sidebar {
+  position: sticky;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: calc(100vh - 40px);
+  padding: 18px 14px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--sidebar-border);
+  background: linear-gradient(180deg, var(--sidebar-bg), rgba(13, 13, 26, 0.96));
+  box-shadow: var(--shadow-soft);
+}
+
+.brandBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 6px 0;
+}
+
+.logo {
+  display: inline-block;
+  font-family: "Outfit", sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.2s, color 0.4s;
+}
+
+.logo:hover {
+  opacity: 0.65;
+}
+
+.brand {
+  margin: 0;
+  font-family: "Noto Sans KR", sans-serif;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.description {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  padding: 11px 12px;
+  border-radius: 11px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.link:hover {
+  transform: translateY(-1px);
+  border-color: var(--card-border);
+  background: var(--menu-hover);
+}
+
+.active {
+  border-color: var(--menu-active-bdr);
+  background: var(--menu-active-bg);
+}
+
+.active .linkLabel {
+  color: #a78bfa;
+}
+
+.linkContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.linkLabel {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.linkDescription {
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+.footerCard {
+  margin-top: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
+.footerTitle {
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.footerValue {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.footerText {
+  margin: 8px 0 0;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.55;
+}
