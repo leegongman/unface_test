@@ -1,11 +1,15 @@
 "use client"
-import { useState, useEffect, useRef } from "react"
+import { Suspense, useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { signIn, useSession } from "next-auth/react"
 
 type View = "v-login" | "v-signup" | "v-forgot1" | "v-forgot2" | "v-forgot3" | "v-forgot4"
 
-export default function LoginPage() {
+function LoginPageFallback() {
+  return <div style={{ minHeight: "100vh", background: "#080810" }} />
+}
+
+function LoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session } = useSession()
@@ -527,5 +531,13 @@ export default function LoginPage() {
 
       </div>
     </>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginPageFallback />}>
+      <LoginPageContent />
+    </Suspense>
   )
 }
