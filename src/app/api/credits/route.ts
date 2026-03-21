@@ -18,5 +18,8 @@ export async function GET() {
     take: 50,
   })
 
-  return NextResponse.json({ balance: user.creditBalance, history })
+  return NextResponse.json(
+    { balance: user.creditBalance, history },
+    { headers: { "Cache-Control": "no-store" } }
+  )
 }

@@ -142,12 +142,12 @@ export default function MainPage() {
       setLoadingProfile(true)
       try {
         const [meRes, avatarsRes, creditsRes, callsRes, friendsRes, reqsRes] = await Promise.all([
-          fetch("/api/users/me"),
-          fetch("/api/avatars"),
-          fetch("/api/credits"),
-          fetch("/api/calls/recent"),
-          fetch("/api/friends"),
-          fetch("/api/friends/requests"),
+          fetch("/api/users/me", { cache: "no-store" }),
+          fetch("/api/avatars", { cache: "no-store" }),
+          fetch("/api/credits", { cache: "no-store" }),
+          fetch("/api/calls/recent", { cache: "no-store" }),
+          fetch("/api/friends", { cache: "no-store" }),
+          fetch("/api/friends/requests", { cache: "no-store" }),
         ])
 
         if (avatarsRes.ok) {
@@ -162,6 +162,7 @@ export default function MainPage() {
         if (meRes.ok) {
           const me = await meRes.json()
           setUserProfile({ region: me.countryCode ?? "아시아", gender: me.gender ?? "OTHER" })
+          setCredits(me.creditBalance ?? 0)
           const owned = new Set<string>()
           for (const ua of me.userAvatars ?? []) {
             if (ua.avatar?.name) owned.add(ua.avatar.name)

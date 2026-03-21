@@ -19,20 +19,23 @@ export async function GET() {
 
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
-  return NextResponse.json({
-    id: user.id,
-    email: user.email,
-    nickname: user.nickname,
-    gender: user.gender,
-    countryCode: user.countryCode,
-    language: user.language,
-    bio: user.bio,
-    interests: user.interests,
-    creditBalance: user.creditBalance,
-    userAvatars: user.userAvatars,
-    equippedAvatar: user.userAvatars.find((a: any) => a.isEquipped)?.avatar || null,
-    subscription: user.subscriptions[0]?.plan || null,
-  })
+  return NextResponse.json(
+    {
+      id: user.id,
+      email: user.email,
+      nickname: user.nickname,
+      gender: user.gender,
+      countryCode: user.countryCode,
+      language: user.language,
+      bio: user.bio,
+      interests: user.interests,
+      creditBalance: user.creditBalance,
+      userAvatars: user.userAvatars,
+      equippedAvatar: user.userAvatars.find((a: any) => a.isEquipped)?.avatar || null,
+      subscription: user.subscriptions[0]?.plan || null,
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  )
 }
 
 export async function PUT(req: Request) {
