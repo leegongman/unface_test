@@ -78,6 +78,36 @@ export async function GET() {
   return NextResponse.json({ friends: friendList })
 }
 
+export async function DELETE(req: Request) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { friendId } = await req.json()
+  const { prisma } = await import("@/lib/prisma")
+
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email },
+  })
+
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 })
+  }
+
+  await prisma.friendRequest.deleteMany({
+    where: {
+      status: "ACCEPTED",
+      OR: [
+        { senderId: user.id, receiverId: friendId },
+        { senderId: friendId, receiverId: user.id },
+      ],
+    },
+  })
+
+  return NextResponse.json({ ok: true })
+}
+
 export async function PATCH(req: Request) {
   const session = await auth()
   if (!session?.user?.email) {

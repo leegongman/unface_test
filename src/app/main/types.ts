@@ -17,6 +17,7 @@ export type ProfileSummary = {
   countryCode: string | null
   language: string | null
   gender: string | null
+  serverRegions: string[]
   subscription: SubscriptionSummary | null
 }
 
@@ -27,8 +28,10 @@ export type AvatarResponseItem = {
 
 export type MeResponse = {
   countryCode?: string | null
+  serverRegions?: string[]
   language?: string | null
   gender?: string | null
+  preferGender?: string | null
   subscription?: SubscriptionSummary | null
   userAvatars?: Array<{ avatar?: { name?: string | null } | null }>
   equippedAvatar?: { name?: string | null } | null
@@ -98,6 +101,12 @@ export type WebRtcAnswerPayload = {
 
 export type WebRtcIcePayload = {
   candidate: RTCIceCandidateInit | null
+}
+
+export type MessagePreview = {
+  lastMessage: string
+  lastTime: string
+  unreadCount: number
 }
 
 export type PermissionError = Error & {

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { signOut, useSession } from "next-auth/react"
 import type { Socket } from "socket.io-client"
 
-import { AVATARS, CELEBS, getGenderLabel, getLanguageLabel, getLocationLabel, getRegionLabel, mapFriends, mapRecentCalls } from "./constants"
+import { AVATARS, CELEBS, getGenderLabel, getLanguageLabel, getLocationLabel, getServerRegionsLabel, mapFriends, mapRecentCalls } from "./constants"
 import { FriendsPanel } from "./components/FriendsPanel"
 import { MatchingOverlay } from "./components/MatchingOverlay"
 import { PaymentModal } from "./components/PaymentModal"
@@ -57,24 +57,27 @@ export default function MainPage() {
   const [avatarIdByName, setAvatarIdByName] = useState<Record<string, string>>({})
   const [activePeer, setActivePeer] = useState<{ id: string; name: string } | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
-  const [chatView, setChatView] = useState<{ emoji: string; name: string } | null>(null)
+  const [chatView, setChatView] = useState<{ id: string; emoji: string; name: string } | null>(null)
   const [payMethod, setPayMethod] = useState<"card" | "simple" | "virtual">("card")
   const [toast, setToast] = useState<string | null>(null)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportReason, setReportReason] = useState("HARASSMENT")
   const [selectedCeleb, setSelectedCeleb] = useState<number | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [profileSummary, setProfileSummary] = useState<ProfileSummary>({ countryCode: "AS", language: "ko", gender: "OTHER", subscription: null })
+  const [profileSummary, setProfileSummary] = useState<ProfileSummary>({ countryCode: "KR", language: "ko", gender: "OTHER", serverRegions: ["AS"], subscription: null })
   const [friendRequest, setFriendRequest] = useState<{ fromSocketId: string; fromUserId: string; fromNickname: string } | null>(null)
   const [friendSubTab, setFriendSubTab] = useState<"list" | "received" | "sent">("list")
   const [receivedRequests, setReceivedRequests] = useState<Array<{ id: string; sender: { id: string; nickname: string | null } }>>([])
   const [sentRequests, setSentRequests] = useState<Array<{ id: string; receiver: { id: string; nickname: string | null } }>>([])
-  const [userProfile, setUserProfile] = useState<{ region: string; gender: string }>({ region: "AS", gender: "OTHER" })
+  const [userProfile, setUserProfile] = useState<{ regions: string[]; gender: string }>({ regions: ["AS"], gender: "OTHER" })
   const [isAddFriendLoading, setIsAddFriendLoading] = useState(false)
   const [isReportLoading, setIsReportLoading] = useState(false)
   const [isPaymentLoading, setIsPaymentLoading] = useState(false)
   const [toastType, setToastType] = useState<"success" | "error" | "info">("info")
-  const matchGenderPref = "OTHER"
+  const [matchGenderPref, setMatchGenderPref] = useState("OTHER")
+  const [friendMessages, setFriendMessages] = useState<Record<string, Array<{ mine: boolean; text: string; time: string }>>>({})
+  const [friendPreviews, setFriendPreviews] = useState<Record<string, { lastMessage: string; lastTime: string; unreadCount: number }>>({})
+  const activeChatFriendIdRef = useRef<string | null>(null)
   const socketRef = useRef<Socket | null>(null)
   const activePeerSocketIdRef = useRef<string | null>(null)
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -131,12 +134,17 @@ export default function MainPage() {
     const loadAll = async () => {
       setLoadingProfile(true)
       try {
-        const [meRes, avatarsRes, creditsRes, callsRes, friendsRes, reqsRes] = await Promise.all([fetch("/api/users/me"), fetch("/api/avatars"), fetch("/api/credits"), fetch("/api/calls/recent"), fetch("/api/friends"), fetch("/api/friends/requests")])
+        const [meRes, avatarsRes, creditsRes, callsRes, friendsRes, reqsRes, previewsRes] = await Promise.all([fetch("/api/users/me"), fetch("/api/avatars"), fetch("/api/credits"), fetch("/api/calls/recent"), fetch("/api/friends"), fetch("/api/friends/requests"), fetch("/api/messages/previews")])
         if (avatarsRes.ok) { const data: { avatars?: AvatarResponseItem[] } = await avatarsRes.json(); const map: Record<string, string> = {}; for (const avatar of data.avatars ?? []) map[avatar.name] = avatar.id; setAvatarIdByName(map) }
         if (meRes.ok) {
           const me: MeResponse = await meRes.json()
-          setUserProfile({ region: me.countryCode ?? "AS", gender: me.gender ?? "OTHER" })
-          setProfileSummary({ countryCode: me.countryCode ?? "AS", language: me.language ?? "ko", gender: me.gender ?? "OTHER", subscription: me.subscription ? { name: me.subscription.name, matchLimitDaily: me.subscription.matchLimitDaily, genderFilter: me.subscription.genderFilter, voiceFilter: me.subscription.voiceFilter, translation: me.subscription.translation, premiumAvatars: me.subscription.premiumAvatars } : null })
+          const CONTINENT_CODES = new Set(["AS", "EU", "NA", "SA", "AF", "OC"])
+          const defaultRegions = me.serverRegions && me.serverRegions.length > 0
+            ? me.serverRegions
+            : CONTINENT_CODES.has(me.countryCode ?? "") ? [me.countryCode!] : ["AS"]
+          setUserProfile({ regions: defaultRegions, gender: me.gender ?? "OTHER" })
+          setProfileSummary({ countryCode: me.countryCode ?? "KR", language: me.language ?? "ko", gender: me.gender ?? "OTHER", serverRegions: defaultRegions, subscription: me.subscription ? { name: me.subscription.name, matchLimitDaily: me.subscription.matchLimitDaily, genderFilter: me.subscription.genderFilter, voiceFilter: me.subscription.voiceFilter, translation: me.subscription.translation, premiumAvatars: me.subscription.premiumAvatars } : null })
+          if (me.preferGender) setMatchGenderPref(me.preferGender)
           const owned = new Set<string>(); for (const userAvatar of me.userAvatars ?? []) if (userAvatar.avatar?.name) owned.add(userAvatar.avatar.name); setOwnedAvatarNames(owned)
           const equippedAvatarName = me.equippedAvatar?.name
           if (equippedAvatarName) { const avatarIndex = AVATARS.findIndex((avatar) => avatar.name === equippedAvatarName); if (avatarIndex >= 0) { setSelectedAvatar(avatarIndex); setSelectedCeleb(null) } else { const celebIndex = CELEBS.findIndex((celeb) => celeb.name === equippedAvatarName); if (celebIndex >= 0) setSelectedCeleb(celebIndex) } }
@@ -146,6 +154,7 @@ export default function MainPage() {
         if (callsRes.ok) { const data: RecentCallsResponse = await callsRes.json(); setRecentCalls(mapRecentCalls(data.calls ?? [])) }
         if (friendsRes.ok) { const data: FriendsResponse = await friendsRes.json(); setFriends(mapFriends(data.friends ?? [])) }
         if (reqsRes.ok) { const data: FriendRequestsResponse = await reqsRes.json(); setReceivedRequests(data.received ?? []); setSentRequests(data.sent ?? []) }
+        if (previewsRes.ok) { const data: { previews?: Record<string, { lastMessage: string; lastTime: string; unreadCount: number }> } = await previewsRes.json(); setFriendPreviews(data.previews ?? {}) }
       } finally {
         setLoadingProfile(false)
       }
@@ -158,6 +167,28 @@ export default function MainPage() {
     if (!session || inCall) return
     void prepareIdlePreview()
   }, [session, inCall, prepareIdlePreview])
+  // chatView가 열릴 때 DB에서 메시지 로드 + 읽음 처리
+  useEffect(() => {
+    if (!chatView || !session) {
+      activeChatFriendIdRef.current = null
+      return
+    }
+    activeChatFriendIdRef.current = chatView.id
+    const friendId = chatView.id
+    void (async () => {
+      const res = await fetch(`/api/messages?friendId=${friendId}`)
+      if (res.ok) {
+        const data: { messages?: Array<{ id: string; mine: boolean; text: string; time: string }> } = await res.json()
+        setFriendMessages((prev) => ({ ...prev, [friendId]: data.messages ?? [] }))
+      }
+      await fetch("/api/messages/read", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ friendId }) })
+      setFriendPreviews((prev) => ({
+        ...prev,
+        [friendId]: { lastMessage: prev[friendId]?.lastMessage ?? "", lastTime: prev[friendId]?.lastTime ?? "", unreadCount: 0 },
+      }))
+    })()
+    return () => { activeChatFriendIdRef.current = null }
+  }, [chatView, session])
   useEffect(() => {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream
   }, [remoteStream, inCall, remoteVideoRef])
@@ -193,7 +224,20 @@ export default function MainPage() {
     nextMatch()
   }, [isMatchingRef, nextMatch])
 
-  useSocket({ socketRef, activePeerSocketIdRef, startWebRTC, cleanupWebRTC, rematchAfterCallEnd: queueNextMatch, showToast, setInCall, setActivePeer, setCallTimer, callTimerRef, setMessages, setFriendRequest, iceCandidateBuffer, peerConnectionRef, setMatching, matchTimerRef, isMatchingRef })
+  // DM 수신 콜백 — useSocket보다 먼저 선언해야 함
+  const onDmReceive = useCallback((senderUserId: string, text: string, time: string) => {
+    setFriendMessages((prev) => ({ ...prev, [senderUserId]: [...(prev[senderUserId] ?? []), { mine: false, text, time }] }))
+    setFriendPreviews((prev) => ({
+      ...prev,
+      [senderUserId]: {
+        lastMessage: text,
+        lastTime: new Date().toISOString(),
+        unreadCount: activeChatFriendIdRef.current === senderUserId ? 0 : (prev[senderUserId]?.unreadCount ?? 0) + 1,
+      },
+    }))
+  }, [])
+
+  useSocket({ socketRef, activePeerSocketIdRef, startWebRTC, cleanupWebRTC, rematchAfterCallEnd: queueNextMatch, showToast, setInCall, setActivePeer, setCallTimer, callTimerRef, setMessages, setFriendRequest, iceCandidateBuffer, peerConnectionRef, setMatching, matchTimerRef, isMatchingRef, onDmReceive })
 
   const togglePanel = (panel: ActivePanel) => { if (activePanel === panel) { setActivePanel(null); setTabOpen(false) } else { setActivePanel(panel); setTabOpen(false) } }
   const switchTab = (tab: ActiveTab) => { if (tabOpen && activeTab === tab) { setTabOpen(false); setChatView(null); return } setActiveTab(tab); setTabOpen(true); setActivePanel(null); setChatView(null) }
@@ -220,6 +264,21 @@ export default function MainPage() {
     socketRef.current?.emit("message:send", { text: chatMsg })
     setChatMsg("")
   }
+  // 친구 DM 전송 (DB 저장 + 소켓 릴레이)
+  const sendFriendMsg = useCallback(() => {
+    if (!chatMsg.trim() || !chatView) return
+    const now = new Date()
+    const hour = now.getHours()
+    const min = String(now.getMinutes()).padStart(2, "0")
+    const time = hour >= 12 ? `오후 ${hour - 12 || 12}:${min}` : `오전 ${hour}:${min}`
+    const text = chatMsg
+    const friendId = chatView.id
+    setChatMsg("")
+    setFriendMessages((prev) => ({ ...prev, [friendId]: [...(prev[friendId] ?? []), { mine: true, text, time }] }))
+    setFriendPreviews((prev) => ({ ...prev, [friendId]: { lastMessage: text, lastTime: new Date().toISOString(), unreadCount: 0 } }))
+    socketRef.current?.emit("dm:send", { receiverUserId: friendId, text })
+    void fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: friendId, content: text }) })
+  }, [chatMsg, chatView, socketRef])
   const addFriend = async () => {
     if (!activePeer || !activePeerSocketIdRef.current || isAddFriendLoading) return
     setIsAddFriendLoading(true)
@@ -246,7 +305,21 @@ export default function MainPage() {
     const peerId = activePeer?.id ?? null
     const durationSec = callTimer
 
-    queueNextMatch()
+    // 타이머 정리
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current)
+      callTimerRef.current = null
+    }
+    setCallTimer(0)
+
+    // 로컬 상태 정리 후 idle 복귀 (재매칭 안 함)
+    callCleanupWebRTC()
+    setInCall(false)
+    setActivePeer(null)
+    activePeerSocketIdRef.current = null
+
+    // 서버에 알림 → 상대방은 call:ended 받아 자동 재매칭됨
+    socketRef.current?.emit("call:end")
 
     if (!peerId) return
 
@@ -256,6 +329,28 @@ export default function MainPage() {
       if (callsRes.ok) { const data: RecentCallsResponse = await callsRes.json(); setRecentCalls(mapRecentCalls(data.calls ?? [])) }
     })()
   }
+  const handleSaveProfile = useCallback(async (updates: { countryCode: string; language: string; gender: string; preferGender: string; serverRegions: string[] }) => {
+    const res = await fetch("/api/users/me", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates) })
+    if (res.ok) {
+      setProfileSummary((prev) => ({ ...prev, countryCode: updates.countryCode, language: updates.language, gender: updates.gender, serverRegions: updates.serverRegions }))
+      setUserProfile({ regions: updates.serverRegions, gender: updates.gender })
+      setMatchGenderPref(updates.preferGender)
+      showToast("프로필이 저장됐어요!", "success")
+    } else {
+      showToast("저장에 실패했어요", "error")
+    }
+  }, [showToast])
+
+  const handleDeleteFriend = useCallback(async (friendId: string) => {
+    const res = await fetch("/api/friends", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ friendId }) })
+    if (res.ok) {
+      setFriends((prev) => prev.filter((f) => f.id !== friendId))
+      showToast("친구를 삭제했어요")
+    } else {
+      showToast("친구 삭제에 실패했어요", "error")
+    }
+  }, [showToast])
+
   const handleSelectAvatar = async (index: number) => {
     const avatar = AVATARS[index]
     setSelectedAvatar(index)
@@ -308,7 +403,6 @@ export default function MainPage() {
   const nickname = session?.user?.name ?? session?.user?.nickname ?? "익명"
   const profileAvatar = selectedCeleb !== null ? (CELEBS[selectedCeleb]?.face ?? AVATARS[selectedAvatar]?.emoji ?? "😶") : (AVATARS[selectedAvatar]?.emoji ?? "😶")
   const currentLocationLabel = getLocationLabel(profileSummary.countryCode)
-  const currentRegionLabel = getRegionLabel(profileSummary.countryCode)
   const currentLanguageLabel = getLanguageLabel(profileSummary.language)
   const currentGenderLabel = getGenderLabel(profileSummary.gender)
   const matchingGenderLabel = getGenderLabel(matchGenderPref)
@@ -326,14 +420,14 @@ export default function MainPage() {
           <TopBar activeTab={activeTab} onSwitchTab={switchTab} receivedRequestsCount={receivedRequests.length} credits={credits} theme={theme} onToggleTheme={() => setTheme((value) => value === "dark" ? "light" : "dark")} onOpenPayment={openPayment} />
           <div className="content">
             <RecentCallsPanel isOpen={tabOpen && activeTab === "recent"} recentCalls={recentCalls} />
-            <FriendsPanel isOpen={tabOpen && activeTab === "friends"} friends={friends} receivedRequests={receivedRequests} sentRequests={sentRequests} friendSubTab={friendSubTab} onSetFriendSubTab={setFriendSubTab} chatView={chatView} onSetChatView={setChatView} messages={messages} chatMsg={chatMsg} onSetChatMsg={setChatMsg} onSendMsg={sendMsg} onAcceptRequest={handleAcceptRequest} onRejectRequest={handleRejectRequest} onShowToast={showToast} />
+            <FriendsPanel isOpen={tabOpen && activeTab === "friends"} friends={friends} receivedRequests={receivedRequests} sentRequests={sentRequests} friendSubTab={friendSubTab} onSetFriendSubTab={setFriendSubTab} chatView={chatView} onSetChatView={setChatView} messages={chatView ? (friendMessages[chatView.id] ?? []) : []} chatMsg={chatMsg} onSetChatMsg={setChatMsg} onSendMsg={sendFriendMsg} onAcceptRequest={handleAcceptRequest} onRejectRequest={handleRejectRequest} onShowToast={showToast} onDeleteFriend={handleDeleteFriend} friendPreviews={friendPreviews} />
             <SlidePanel activePanel={activePanel} avatarTab={avatarTab} onSetAvatarTab={setAvatarTab} voiceTab={voiceTab} onSetVoiceTab={setVoiceTab} selectedAvatar={selectedAvatar} onSelectAvatar={handleSelectAvatar} selectedCeleb={selectedCeleb} onSelectCeleb={handleSelectCeleb} selectedVoice={selectedVoice} onSelectVoice={setSelectedVoice} selectedTranslate={selectedTranslate} onSelectTranslate={setSelectedTranslate} ownedAvatarNames={ownedAvatarNames} onOpenPayment={openPayment} />
             <VideoArea inCall={inCall} matching={matching} localStream={localStream} remoteStream={remoteStream} localVideoRef={localVideoRef} canvasRef={canvasRef} remoteVideoRef={remoteVideoRef} micOff={micOff} camOff={camOff} isFilterActive={isFilterActive} onToggleMic={() => setMicOff((value) => !value)} onToggleCam={() => setCamOff((value) => !value)} selectedAvatar={selectedAvatar} activePeer={activePeer} callTimer={callTimer} onStartMatching={startMatching} onNextMatch={queueNextMatch} onEndCall={endCall} onOpenReport={() => setReportOpen(true)} onAddFriend={addFriend} isMatchingLoading={isMatchingLoading} isAddFriendLoading={isAddFriendLoading} matchingOverlay={<MatchingOverlay matchTimer={matchTimer} avatarEmoji={AVATARS[selectedAvatar].emoji} onCancel={cancelMatching} />} />
           </div>
         </div>
       </div>
 
-      <ProfileOverlay isOpen={profileOpen} onClose={() => setProfileOpen(false)} profileAvatar={profileAvatar} nickname={nickname} profileSummary={profileSummary} currentLocationLabel={currentLocationLabel} currentRegionLabel={currentRegionLabel} currentLanguageLabel={currentLanguageLabel} currentGenderLabel={currentGenderLabel} matchingGenderLabel={matchingGenderLabel} planName={planName} planDesc={planDesc} planBadge={planBadge} planFeatures={planFeatures} onOpenAllPlans={() => { setProfileOpen(false); router.push("/shop") }} onEditProfile={() => { setProfileOpen(false); showToast("내 정보 변경 기능은 준비 중이에요") }} />
+      <ProfileOverlay isOpen={profileOpen} onClose={() => setProfileOpen(false)} profileAvatar={profileAvatar} nickname={nickname} profileSummary={profileSummary} preferGender={matchGenderPref} currentLocationLabel={currentLocationLabel} currentLanguageLabel={currentLanguageLabel} currentGenderLabel={currentGenderLabel} matchingGenderLabel={matchingGenderLabel} planName={planName} planDesc={planDesc} planBadge={planBadge} planFeatures={planFeatures} onOpenAllPlans={() => { setProfileOpen(false); router.push("/shop") }} onSave={handleSaveProfile} />
       <PaymentModal isOpen={paymentOpen} onClose={closePayment} paymentItem={paymentItem} payMethod={payMethod} onSetPayMethod={setPayMethod} onConfirm={confirmPayment} isLoading={isPaymentLoading} />
       <ReportModal isOpen={reportOpen} onClose={() => setReportOpen(false)} reportReason={reportReason} onSetReportReason={setReportReason} onSubmit={submitReport} isLoading={isReportLoading} />
       <LoadingOverlay isOpen={loadingProfile} />

@@ -32,7 +32,9 @@ export async function GET() {
     email: user.email,
     nickname: user.nickname,
     gender: user.gender,
+    preferGender: user.preferGender,
     countryCode: user.countryCode,
+    serverRegions: user.serverRegions,
     language: user.language,
     bio: user.bio,
     interests: user.interests,
@@ -54,7 +56,9 @@ export async function PUT(req: Request) {
 
   const updateData: Record<string, unknown> = {}
   if (body.gender !== undefined) updateData.gender = body.gender
+  if (body.preferGender !== undefined) updateData.preferGender = body.preferGender
   if (body.countryCode !== undefined) updateData.countryCode = body.countryCode
+  if (body.serverRegions !== undefined) updateData.serverRegions = body.serverRegions
   if (body.language !== undefined) updateData.language = body.language
   if (body.nickname !== undefined) updateData.nickname = body.nickname
   if (body.bio !== undefined) updateData.bio = body.bio

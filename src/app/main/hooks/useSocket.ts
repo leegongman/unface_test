@@ -31,6 +31,7 @@ interface UseSocketParams {
   setMatching: React.Dispatch<React.SetStateAction<boolean>>
   matchTimerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
   isMatchingRef: React.MutableRefObject<boolean>
+  onDmReceive: (senderUserId: string, text: string, time: string) => void
 }
 
 interface UseSocketReturn {
@@ -56,6 +57,7 @@ export function useSocket({
   setMatching,
   matchTimerRef,
   isMatchingRef,
+  onDmReceive,
 }: UseSocketParams): UseSocketReturn {
   useEffect(() => {
     const setup = async () => {
@@ -156,6 +158,16 @@ export function useSocket({
       setMessages((messages) => [...messages, { mine: false, text: data.text, time }])
     })
 
+    // 친구 간 DM 수신
+    socket.on("dm:receive", (data: { senderUserId: string; text: string; time: string }) => {
+      const date = new Date(data.time)
+      const hour = date.getHours()
+      const time = hour >= 12
+        ? `오후 ${hour - 12 || 12}:${String(date.getMinutes()).padStart(2, "0")}`
+        : `오전 ${hour}:${String(date.getMinutes()).padStart(2, "0")}`
+      onDmReceive(data.senderUserId, data.text, time)
+    })
+
     socket.on("friend:incoming", (data: { fromSocketId: string; fromUserId: string; fromNickname: string }) => {
       setFriendRequest(data)
     })
@@ -179,6 +191,7 @@ export function useSocket({
     iceCandidateBuffer,
     isMatchingRef,
     matchTimerRef,
+    onDmReceive,
     peerConnectionRef,
     rematchAfterCallEnd,
     setActivePeer,

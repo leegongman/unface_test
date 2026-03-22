@@ -30,7 +30,7 @@ interface QueueEntry {
   socketId: string
   userId: string
   nickname: string
-  region: string
+  regions: string[]
   gender: string
   preferGender?: string // 상대방 성별 필터 ("MALE" | "FEMALE" | "OTHER" | undefined = 상관없음)
 }
@@ -38,11 +38,12 @@ interface QueueEntry {
 const matchQueue: QueueEntry[] = []
 const activeCalls: Map<string, string> = new Map() // socketId → partnerSocketId
 const onlineUsers: Map<string, string> = new Map() // socketId → userId
+const userSockets: Map<string, string> = new Map() // userId → socketId (최신 연결)
 
 interface MatchJoinPayload {
   userId: string
   nickname: string
-  region: string
+  regions: string[]
   gender: string
   preferGender?: string
 }
@@ -57,7 +58,7 @@ interface WebRtcIcePayload {
   candidate: RTCIceCandidateInit
 }
 
-function normalizeServerRegion(region: string | undefined) {
+function normalizeServerRegion(region: string | undefined): string {
   const normalized = region?.trim().toUpperCase()
 
   switch (normalized) {
@@ -93,17 +94,19 @@ function removeQueueEntry(socketId: string) {
 function handleMatchJoin(socket: Socket, data: MatchJoinPayload) {
   removeQueueEntry(socket.id)
 
-  const normalizedRegion = normalizeServerRegion(data.region)
+  const normalizedRegions = (data.regions ?? ["AS"]).map(normalizeServerRegion)
   const entry: QueueEntry = {
     socketId: socket.id,
     ...data,
-    region: normalizedRegion,
+    regions: normalizedRegions,
   }
 
-  // 매칭 조건: 같은 서버 대륙 + 양방향 성별 필터 모두 충족하는 상대 찾기
+  // 매칭 조건: 서버 대륙 배열 교집합 존재 + 양방향 성별 필터 모두 충족하는 상대 찾기
   const isCompatible = (q: QueueEntry) => {
     if (q.socketId === socket.id) return false
-    if (q.region !== normalizedRegion) return false
+    // 서버 대륙 교집합 체크 (최소 1개 공통 지역 필요)
+    const hasCommonRegion = q.regions.some((r) => normalizedRegions.includes(r))
+    if (!hasCommonRegion) return false
     // 내가 원하는 상대 성별 체크
     if (data.preferGender && data.preferGender !== "OTHER" && q.gender !== data.preferGender) return false
     // 상대가 원하는 성별 체크 (상대의 필터도 만족해야 함)
@@ -173,10 +176,15 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log("Connected:", socket.id, "userId:", socket.data.userId)
 
+  // 연결 즉시 userId ↔ socketId 등록 (DM 수신을 위해)
+  if (socket.data.userId) {
+    onlineUsers.set(socket.id, socket.data.userId)
+    userSockets.set(socket.data.userId, socket.id)
+  }
+
   socket.on("match:join", (data) => {
     // 클라이언트가 보낸 userId 대신 서버에서 검증된 userId 사용
     const verifiedData = { ...data, userId: socket.data.userId }
-    onlineUsers.set(socket.id, socket.data.userId)
     handleMatchJoin(socket, verifiedData)
   })
 
@@ -232,7 +240,7 @@ io.on("connection", (socket) => {
     })
   })
 
-  socket.on("match:next", (data: { userId: string; nickname: string; region: string; gender: string; preferGender?: string }) => {
+  socket.on("match:next", (data: { userId: string; nickname: string; regions: string[]; gender: string; preferGender?: string }) => {
     // 현재 통화 종료
     const partnerId = activeCalls.get(socket.id)
     if (partnerId) {
@@ -242,6 +250,18 @@ io.on("connection", (socket) => {
     }
     // 새 상대 찾기 (검증된 userId 사용)
     handleMatchJoin(socket, { ...data, userId: socket.data.userId })
+  })
+
+  // 친구 간 다이렉트 메시지 릴레이
+  socket.on("dm:send", (data: { receiverUserId: string; text: string }) => {
+    const receiverSocketId = userSockets.get(data.receiverUserId)
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("dm:receive", {
+        senderUserId: socket.data.userId,
+        text: data.text,
+        time: new Date().toISOString(),
+      })
+    }
   })
 
   socket.on("friends:getOnline", (userIds: string[], callback: (onlineIds: string[]) => void) => {
@@ -254,6 +274,7 @@ io.on("connection", (socket) => {
     removeQueueEntry(socket.id)
 
     onlineUsers.delete(socket.id)
+    if (socket.data.userId) userSockets.delete(socket.data.userId)
 
     const partnerId = activeCalls.get(socket.id)
     if (partnerId) {

@@ -7,7 +7,7 @@ interface UseMatchingParams {
   socketRef: React.MutableRefObject<Socket | null>
   activePeerSocketIdRef: React.MutableRefObject<string | null>
   session: Session | null | undefined
-  userProfile: { region: string; gender: string }
+  userProfile: { regions: string[]; gender: string }
   matchGenderPref: string
   cleanupWebRTC: () => void
   setInCall: React.Dispatch<React.SetStateAction<boolean>>
@@ -45,10 +45,10 @@ export function useMatching({
   const buildMatchPayload = useCallback(() => ({
     userId: session?.user?.id ?? "unknown",
     nickname: session?.user?.name ?? session?.user?.nickname ?? "익명",
-    region: userProfile.region,
+    regions: userProfile.regions,
     gender: userProfile.gender,
     preferGender: matchGenderPref,
-  }), [matchGenderPref, session, userProfile.gender, userProfile.region])
+  }), [matchGenderPref, session, userProfile.gender, userProfile.regions])
 
   const beginMatchingState = useCallback(() => {
     if (matchTimerRef.current) {

@@ -13,7 +13,9 @@ model User {
   password      String?
   nickname      String?    @db.VarChar(50)
   gender        Gender?
-  countryCode   String?    @db.Char(2)
+  preferGender  Gender?
+  countryCode   String?    @db.VarChar(2)
+  serverRegions String[]
   language      String?    @default("ko") @db.VarChar(10)
   bio           String?
   interests     Json?
@@ -28,6 +30,8 @@ model User {
   userAvatars      UserAvatar[]
   sentRequests     FriendRequest[]    @relation("sender")
   receivedRequests FriendRequest[]    @relation("receiver")
+  sentDMs          DirectMessage[]    @relation("sentDMs")
+  receivedDMs      DirectMessage[]    @relation("receivedDMs")
   posts            Post[]
   postLikes        PostLike[]
   postComments     PostComment[]
@@ -129,6 +133,22 @@ model Call {
 
   @@index([callerId, startedAt])
   @@index([calleeId])
+}
+
+// ─── 다이렉트 메시지 ───
+model DirectMessage {
+  id         String   @id @default(uuid()) @db.Uuid
+  senderId   String   @db.Uuid
+  receiverId String   @db.Uuid
+  content    String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("sentDMs", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("receivedDMs", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, receiverId, createdAt])
+  @@index([receiverId, read])
 }
 
 // ─── 친구 & 개인 페이지 ───
