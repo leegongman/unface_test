@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth"
 
 export async function GET(request: Request) {
   const session = await auth()
-  const baseUrl = new URL(request.url).origin
+  const baseUrl = (process.env.NEXTAUTH_URL ?? new URL(request.url).origin).replace(/\/$/, "")
 
   if (!session?.user?.email) {
     return NextResponse.redirect(new URL("/login", baseUrl))

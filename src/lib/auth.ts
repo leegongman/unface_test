@@ -123,6 +123,17 @@ export const authOptions = {
     }),
   ],
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      // 상대 경로는 항상 허용
+      if (url.startsWith("/")) return `${baseUrl}${url}`
+      // 운영 도메인 기준으로 same-origin 체크 (NEXTAUTH_URL 우선)
+      const allowedBase = (process.env.NEXTAUTH_URL ?? baseUrl).replace(/\/$/, "")
+      try {
+        if (new URL(url).origin === new URL(allowedBase).origin) return url
+      } catch {}
+      return allowedBase
+    },
+
     async signIn({ user, account }) {
       const email = user.email?.trim()
       if (!email) return false
