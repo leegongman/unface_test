@@ -2,12 +2,14 @@
 "use client"
 import "./main.css"
 
+import { getSocket } from "@/lib/socket-client"
+import { getChargeableCallDurationSec, hasReachedCallTokenThreshold } from "@/lib/call-billing"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { signOut, useSession } from "next-auth/react"
 import type { Socket } from "socket.io-client"
 
-import { AVATARS, CELEBS, getGenderLabel, getLanguageLabel, getLocationLabel, getServerRegionsLabel, mapFriends, mapRecentCalls } from "./constants"
+import { AVATARS, CELEBS, getGenderLabel, getLanguageLabel, getLocationLabel, mapFriends, mapRecentCalls } from "./constants"
 import { FriendsPanel } from "./components/FriendsPanel"
 import { MatchingOverlay } from "./components/MatchingOverlay"
 import { PaymentModal } from "./components/PaymentModal"
@@ -16,7 +18,7 @@ import { RecentCallsPanel } from "./components/RecentCallsPanel"
 import { ReportModal } from "./components/ReportModal"
 import { Sidebar } from "./components/Sidebar"
 import { SlidePanel } from "./components/SlidePanel"
-import { FriendRequestToast, LoadingOverlay, ToastMessage } from "./components/StatusOverlays"
+import { DirectMessageToast, FriendRequestToast, LoadingOverlay, ToastMessage } from "./components/StatusOverlays"
 import { TopBar } from "./components/TopBar"
 import { VideoArea } from "./components/VideoArea"
 import { useMatching } from "./hooks/useMatching"
@@ -24,7 +26,19 @@ import { useFaceFilter } from "./hooks/useFaceFilter"
 import { useMediaStream } from "./hooks/useMediaStream"
 import { useSocket } from "./hooks/useSocket"
 import { useWebRTC } from "./hooks/useWebRTC"
-import type { ActivePanel, ActiveTab, AvatarResponseItem, AvatarTab, CheckoutResponse, CreditsResponse, FriendRequestsResponse, FriendsResponse, MeResponse, ProfileSummary, RecentCallsResponse, VoiceTab } from "./types"
+import type { ActivePanel, ActiveTab, AvatarResponseItem, AvatarTab, CheckoutResponse, CreditsResponse, FriendRecord, FriendRequestsResponse, FriendsResponse, MeResponse, ProfileSummary, RecentCallsResponse, VoiceTab } from "./types"
+
+type FriendListItem = {
+  id: string
+  name: string
+  status: string
+  online: boolean
+  emoji: string
+  countryCode?: string
+  gender?: string
+}
+
+type ActivePeerFriendState = "none" | "pending-sent" | "pending-received" | "friend"
 
 export default function MainPage() {
   const { data: session } = useSession()
@@ -45,14 +59,14 @@ export default function MainPage() {
   const [callTimer, setCallTimer] = useState(0)
   const [credits, setCredits] = useState(50)
   const [chatMsg, setChatMsg] = useState("")
-  const [messages, setMessages] = useState<Array<{ mine: boolean; text: string; time: string }>>([
+  const [, setMessages] = useState<Array<{ mine: boolean; text: string; time: string }>>([
     { mine: false, text: "안녕하세요! 👋", time: "오후 2:14" },
     { mine: true, text: "안녕하세요~ 반가워요!", time: "오후 2:14" },
   ])
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentItem, setPaymentItem] = useState({ name: "고양이 아바타", type: "아바타", price: "$1", thumb: "🐱", priceValue: 1, itemType: "avatar", refName: "고양이", avatarCategory: "ANIMAL", creditAmount: 0, planName: "" })
   const [recentCalls, setRecentCalls] = useState<Array<{ id: string; name: string; meta: string; duration: string }>>([])
-  const [friends, setFriends] = useState<Array<{ id: string; name: string; status: string; online: boolean; emoji: string; countryCode?: string; gender?: string }>>([])
+  const [friends, setFriends] = useState<FriendListItem[]>([])
   const [ownedAvatarNames, setOwnedAvatarNames] = useState<Set<string>>(new Set())
   const [avatarIdByName, setAvatarIdByName] = useState<Record<string, string>>({})
   const [activePeer, setActivePeer] = useState<{ id: string; name: string } | null>(null)
@@ -77,16 +91,36 @@ export default function MainPage() {
   const [matchGenderPref, setMatchGenderPref] = useState("OTHER")
   const [friendMessages, setFriendMessages] = useState<Record<string, Array<{ mine: boolean; text: string; time: string }>>>({})
   const [friendPreviews, setFriendPreviews] = useState<Record<string, { lastMessage: string; lastTime: string; unreadCount: number }>>({})
+  const [dmToast, setDmToast] = useState<{ id: number; nickname: string; message: string } | null>(null)
   const activeChatFriendIdRef = useRef<string | null>(null)
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dmToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const friendNameMapRef = useRef<Record<string, string>>({})
   const socketRef = useRef<Socket | null>(null)
   const activePeerSocketIdRef = useRef<string | null>(null)
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const filteredStreamRef = useRef<MediaStream | null>(null)
   const cancelMatchingProxyRef = useRef<() => void>(() => {})
   const cleanupWebRTCProxyRef = useRef<() => void>(() => {})
-  const showToast = useCallback((msg: string, type: "success" | "error" | "info" = "info") => { setToast(msg); setToastType(type); setTimeout(() => setToast(null), 3000) }, [])
+  const showToast = useCallback((msg: string, type: "success" | "error" | "info" = "info") => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    setToast(msg)
+    setToastType(type)
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null)
+      toastTimeoutRef.current = null
+    }, 3000)
+  }, [])
   const callCancelMatching = useCallback(() => { cancelMatchingProxyRef.current() }, [])
   const callCleanupWebRTC = useCallback(() => { cleanupWebRTCProxyRef.current() }, [])
+  const showDmToast = useCallback((nickname: string, message: string) => {
+    if (dmToastTimeoutRef.current) clearTimeout(dmToastTimeoutRef.current)
+    setDmToast({ id: Date.now(), nickname, message })
+    dmToastTimeoutRef.current = setTimeout(() => {
+      setDmToast(null)
+      dmToastTimeoutRef.current = null
+    }, 3400)
+  }, [])
   const { localStream, localStreamRef, localVideoRef, clearLocalStream, prepareIdlePreview, ensureCallStream } = useMediaStream({ micOff, camOff, showToast })
   const { filteredStream, canvasRef, isFilterLoading } = useFaceFilter({ localVideoRef, localStreamRef, activeFilterId, onFilterError: useCallback(() => setActiveFilterId(null), []) })
   const { remoteStream, remoteVideoRef, peerConnectionRef, iceCandidateBuffer, startWebRTC, cleanupWebRTC } = useWebRTC({ ensureCallStream, showToast, cancelMatching: callCancelMatching, socketRef, localStreamRef, filteredStreamRef, clearLocalStream })
@@ -95,6 +129,65 @@ export default function MainPage() {
   useEffect(() => { cancelMatchingProxyRef.current = cancelMatching }, [cancelMatching])
   useEffect(() => { cleanupWebRTCProxyRef.current = cleanupWebRTC }, [cleanupWebRTC])
   useEffect(() => { filteredStreamRef.current = filteredStream }, [filteredStream])
+  const applyFriendPresence = useCallback((friendList: FriendListItem[], onlineIds: string[]) => {
+    const onlineSet = new Set(onlineIds)
+    return friendList.map((friend) => {
+      const isOnline = onlineSet.has(friend.id)
+      return {
+        ...friend,
+        online: isOnline,
+        status: isOnline ? "온라인" : "오프라인",
+      }
+    })
+  }, [])
+
+  const updateFriendPresence = useCallback((onlineIds: string[]) => {
+    setFriends((current) => applyFriendPresence(current, onlineIds))
+  }, [applyFriendPresence])
+
+  const updateSingleFriendPresence = useCallback((userId: string, online: boolean) => {
+    setFriends((current) => current.map((friend) => (
+      friend.id === userId
+        ? { ...friend, online, status: online ? "온라인" : "오프라인" }
+        : friend
+    )))
+  }, [])
+  const syncFriends = useCallback((friendRecords: FriendRecord[]) => {
+    setFriends((current) => {
+      const onlineIds = current.filter((friend) => friend.online).map((friend) => friend.id)
+      return applyFriendPresence(mapFriends(friendRecords), onlineIds)
+    })
+  }, [applyFriendPresence])
+
+  const refreshFriendData = useCallback(async () => {
+    const [friendsRes, reqsRes] = await Promise.all([
+      fetch("/api/friends"),
+      fetch("/api/friends/requests"),
+    ])
+
+    if (friendsRes.ok) {
+      const data: FriendsResponse = await friendsRes.json()
+      syncFriends(data.friends ?? [])
+    }
+
+    if (reqsRes.ok) {
+      const data: FriendRequestsResponse = await reqsRes.json()
+      setReceivedRequests(data.received ?? [])
+      setSentRequests(data.sent ?? [])
+    }
+  }, [syncFriends])
+  const handleFriendIncomingSync = useCallback(() => {
+    void refreshFriendData()
+  }, [refreshFriendData])
+  const handleFriendResponseSync = useCallback(() => {
+    void refreshFriendData()
+  }, [refreshFriendData])
+  useEffect(() => {
+    friendNameMapRef.current = friends.reduce<Record<string, string>>((acc, friend) => {
+      acc[friend.id] = friend.name
+      return acc
+    }, {})
+  }, [friends])
   useEffect(() => {
     if (session === null) router.push("/login")
   }, [session, router])
@@ -152,7 +245,10 @@ export default function MainPage() {
         }
         if (creditsRes.ok) { const credit: CreditsResponse = await creditsRes.json(); setCredits(credit.balance ?? 0) }
         if (callsRes.ok) { const data: RecentCallsResponse = await callsRes.json(); setRecentCalls(mapRecentCalls(data.calls ?? [])) }
-        if (friendsRes.ok) { const data: FriendsResponse = await friendsRes.json(); setFriends(mapFriends(data.friends ?? [])) }
+        if (friendsRes.ok) {
+          const data: FriendsResponse = await friendsRes.json()
+          syncFriends(data.friends ?? [])
+        }
         if (reqsRes.ok) { const data: FriendRequestsResponse = await reqsRes.json(); setReceivedRequests(data.received ?? []); setSentRequests(data.sent ?? []) }
         if (previewsRes.ok) { const data: { previews?: Record<string, { lastMessage: string; lastTime: string; unreadCount: number }> } = await previewsRes.json(); setFriendPreviews(data.previews ?? {}) }
       } finally {
@@ -162,11 +258,62 @@ export default function MainPage() {
     loadAll()
     window.addEventListener("focus", loadAll)
     return () => window.removeEventListener("focus", loadAll)
-  }, [session])
+  }, [session, syncFriends])
   useEffect(() => {
     if (!session || inCall) return
     void prepareIdlePreview()
   }, [session, inCall, prepareIdlePreview])
+  useEffect(() => {
+    const socket = getSocket()
+
+    const handlePresenceSnapshot = (data: { onlineIds?: string[] }) => {
+      updateFriendPresence(data.onlineIds ?? [])
+    }
+
+    const handlePresenceUpdate = (data: { userId?: string; online?: boolean }) => {
+      if (!data.userId) return
+      updateSingleFriendPresence(data.userId, Boolean(data.online))
+    }
+
+    const handleDisconnect = () => {
+      updateFriendPresence([])
+    }
+
+    socket.on("friends:presence", handlePresenceSnapshot)
+    socket.on("friends:presence:update", handlePresenceUpdate)
+    socket.on("disconnect", handleDisconnect)
+
+    return () => {
+      socket.off("friends:presence", handlePresenceSnapshot)
+      socket.off("friends:presence:update", handlePresenceUpdate)
+      socket.off("disconnect", handleDisconnect)
+    }
+  }, [updateFriendPresence, updateSingleFriendPresence])
+
+  const friendIdsKey = friends.map((friend) => friend.id).sort().join(",")
+
+  useEffect(() => {
+    const socket = socketRef.current ?? getSocket()
+    const friendIds = friendIdsKey ? friendIdsKey.split(",") : []
+
+    const subscribePresence = () => {
+      if (!socket.connected) return
+      socket.emit("friends:subscribePresence", friendIds)
+    }
+
+    if (friendIds.length === 0) {
+      updateFriendPresence([])
+      if (socket.connected) socket.emit("friends:subscribePresence", [])
+      return
+    }
+
+    subscribePresence()
+    socket.on("connect", subscribePresence)
+
+    return () => {
+      socket.off("connect", subscribePresence)
+    }
+  }, [friendIdsKey, updateFriendPresence])
   // chatView가 열릴 때 DB에서 메시지 로드 + 읽음 처리
   useEffect(() => {
     if (!chatView || !session) {
@@ -190,7 +337,40 @@ export default function MainPage() {
     return () => { activeChatFriendIdRef.current = null }
   }, [chatView, session])
   useEffect(() => {
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream
+    const video = remoteVideoRef.current
+    if (!video) return
+
+    if (!remoteStream) {
+      video.srcObject = null
+      return
+    }
+
+    if (video.srcObject !== remoteStream) {
+      video.srcObject = remoteStream
+    }
+
+    const playVideo = () => {
+      void video.play().catch(() => {})
+    }
+
+    if (video.readyState >= 2) {
+      playVideo()
+      return
+    }
+
+    const handleCanPlay = () => {
+      playVideo()
+      video.removeEventListener("loadedmetadata", handleCanPlay)
+      video.removeEventListener("canplay", handleCanPlay)
+    }
+
+    video.addEventListener("loadedmetadata", handleCanPlay)
+    video.addEventListener("canplay", handleCanPlay)
+
+    return () => {
+      video.removeEventListener("loadedmetadata", handleCanPlay)
+      video.removeEventListener("canplay", handleCanPlay)
+    }
   }, [remoteStream, inCall, remoteVideoRef])
   useEffect(() => {
     if (!inCall) return
@@ -211,6 +391,12 @@ export default function MainPage() {
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [inCall])
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+      if (dmToastTimeoutRef.current) clearTimeout(dmToastTimeoutRef.current)
+    }
+  }, [])
 
   const queueNextMatch = useCallback(() => {
     if (isMatchingRef.current) return
@@ -235,9 +421,31 @@ export default function MainPage() {
         unreadCount: activeChatFriendIdRef.current === senderUserId ? 0 : (prev[senderUserId]?.unreadCount ?? 0) + 1,
       },
     }))
-  }, [])
+    if (activeChatFriendIdRef.current === senderUserId) return
+    showDmToast(friendNameMapRef.current[senderUserId] ?? "익명", text)
+  }, [showDmToast])
 
-  useSocket({ socketRef, activePeerSocketIdRef, startWebRTC, cleanupWebRTC, rematchAfterCallEnd: queueNextMatch, showToast, setInCall, setActivePeer, setCallTimer, callTimerRef, setMessages, setFriendRequest, iceCandidateBuffer, peerConnectionRef, setMatching, matchTimerRef, isMatchingRef, onDmReceive })
+  useSocket({
+    socketRef,
+    activePeerSocketIdRef,
+    startWebRTC,
+    rematchAfterCallEnd: queueNextMatch,
+    showToast,
+    setInCall,
+    setActivePeer,
+    setCallTimer,
+    callTimerRef,
+    setMessages,
+    setFriendRequest,
+    iceCandidateBuffer,
+    peerConnectionRef,
+    setMatching,
+    matchTimerRef,
+    isMatchingRef,
+    onDmReceive,
+    onFriendIncoming: handleFriendIncomingSync,
+    onFriendResponse: handleFriendResponseSync,
+  })
 
   const togglePanel = (panel: ActivePanel) => { if (activePanel === panel) { setActivePanel(null); setTabOpen(false) } else { setActivePanel(panel); setTabOpen(false) } }
   const switchTab = (tab: ActiveTab) => { if (tabOpen && activeTab === tab) { setTabOpen(false); setChatView(null); return } setActiveTab(tab); setTabOpen(true); setActivePanel(null); setChatView(null) }
@@ -256,15 +464,34 @@ export default function MainPage() {
       setIsPaymentLoading(false)
     }
   }
-  const sendMsg = () => {
-    if (!chatMsg.trim()) return
-    const now = new Date()
-    const time = now.getHours() >= 12 ? `오후 ${now.getHours() - 12 || 12}:${String(now.getMinutes()).padStart(2, "0")}` : `오전 ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`
-    setMessages((current) => [...current, { mine: true, text: chatMsg, time }])
-    socketRef.current?.emit("message:send", { text: chatMsg })
-    setChatMsg("")
-  }
   // 친구 DM 전송 (DB 저장 + 소켓 릴레이)
+  const activePeerFriendState: ActivePeerFriendState = !activePeer
+    ? "none"
+    : friends.some((friend) => friend.id === activePeer.id)
+      ? "friend"
+      : sentRequests.some((request) => request.receiver.id === activePeer.id)
+        ? "pending-sent"
+        : receivedRequests.some((request) => request.sender.id === activePeer.id)
+          ? "pending-received"
+          : "none"
+
+  const addFriendButtonLabel = activePeerFriendState === "friend"
+    ? "✓ 친구"
+    : activePeerFriendState === "pending-sent"
+      ? "요청 보냄"
+      : activePeerFriendState === "pending-received"
+        ? "요청 도착"
+        : "친구 추가"
+
+  const addFriendButtonState = activePeerFriendState === "friend"
+    ? "accepted"
+    : activePeerFriendState === "none"
+      ? "idle"
+      : "pending"
+
+  const isAddFriendDisabled = isAddFriendLoading || activePeerFriendState !== "none"
+  const isCallTokenActive = hasReachedCallTokenThreshold(callTimer)
+
   const sendFriendMsg = useCallback(() => {
     if (!chatMsg.trim() || !chatView) return
     const now = new Date()
@@ -280,11 +507,15 @@ export default function MainPage() {
     void fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: friendId, content: text }) })
   }, [chatMsg, chatView, socketRef])
   const addFriend = async () => {
-    if (!activePeer || !activePeerSocketIdRef.current || isAddFriendLoading) return
+    if (!activePeer || !activePeerSocketIdRef.current || isAddFriendLoading || activePeerFriendState !== "none") return
     setIsAddFriendLoading(true)
     try {
       const res = await fetch("/api/friends", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: activePeer.id, autoAccept: false }) })
-      if (res.ok) { socketRef.current?.emit("friend:request", { targetSocketId: activePeerSocketIdRef.current, fromUserId: session?.user?.id ?? "unknown", fromNickname: session?.user?.name ?? session?.user?.nickname ?? "익명" }); showToast("친구 요청을 보냈습니다!", "success") }
+      if (res.ok) {
+        socketRef.current?.emit("friend:request", { targetSocketId: activePeerSocketIdRef.current, fromUserId: session?.user?.id ?? "unknown", fromNickname: session?.user?.name ?? session?.user?.nickname ?? "익명" })
+        await refreshFriendData()
+        showToast("친구 요청을 보냈습니다!", "success")
+      }
       else { const data = await res.json().catch(() => ({})); showToast(data.error ?? "친구 요청 실패", "error") }
     } finally {
       setIsAddFriendLoading(false)
@@ -304,6 +535,7 @@ export default function MainPage() {
   const endCall = () => {
     const peerId = activePeer?.id ?? null
     const durationSec = callTimer
+    const chargeableDurationSec = getChargeableCallDurationSec(durationSec)
 
     // 타이머 정리
     if (callTimerRef.current) {
@@ -324,7 +556,7 @@ export default function MainPage() {
     if (!peerId) return
 
     void (async () => {
-      await fetch("/api/calls", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ peerId, durationSec }) })
+      await fetch("/api/calls", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ peerId, durationSec, chargeableDurationSec }) })
       const callsRes = await fetch("/api/calls/recent")
       if (callsRes.ok) { const data: RecentCallsResponse = await callsRes.json(); setRecentCalls(mapRecentCalls(data.calls ?? [])) }
     })()
@@ -374,14 +606,14 @@ export default function MainPage() {
     const res = await fetch("/api/friends/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId }) })
     if (res.ok) {
       setReceivedRequests((current) => current.filter((request) => request.id !== requestId))
-      const friendsRes = await fetch("/api/friends")
-      if (friendsRes.ok) { const data: FriendsResponse = await friendsRes.json(); setFriends(mapFriends(data.friends ?? [])) }
+      await refreshFriendData()
       showToast("친구가 됐어요!")
     }
   }
   const handleRejectRequest = async (requestId: string) => {
     await fetch("/api/friends/reject", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId }) })
     setReceivedRequests((current) => current.filter((request) => request.id !== requestId))
+    await refreshFriendData()
     showToast("요청을 거절했어요")
   }
   const handleIncomingFriendAccept = async () => {
@@ -390,14 +622,14 @@ export default function MainPage() {
     socketRef.current?.emit("friend:respond", { targetSocketId: friendRequest.fromSocketId, accepted: true, responderNickname: session?.user?.name ?? session?.user?.nickname ?? "익명" })
     setFriendRequest(null)
     showToast("친구 요청을 수락했습니다!")
-    const friendsRes = await fetch("/api/friends")
-    if (friendsRes.ok) { const data: FriendsResponse = await friendsRes.json(); setFriends(mapFriends(data.friends ?? [])) }
+    await refreshFriendData()
   }
   const handleIncomingFriendReject = async () => {
     if (!friendRequest) return
     await fetch("/api/friends", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderId: friendRequest.fromUserId, accepted: false }) })
     socketRef.current?.emit("friend:respond", { targetSocketId: friendRequest.fromSocketId, accepted: false, responderNickname: session?.user?.name ?? session?.user?.nickname ?? "익명" })
     setFriendRequest(null)
+    await refreshFriendData()
     showToast("친구 요청을 거절했습니다")
   }
   const nickname = session?.user?.name ?? session?.user?.nickname ?? "익명"
@@ -411,23 +643,33 @@ export default function MainPage() {
   const planBadge = profileSummary.subscription ? "사용 중" : "기본"
   const planFeatures = profileSummary.subscription ? [`${profileSummary.subscription.matchLimitDaily}회/일 매칭`, profileSummary.subscription.genderFilter ? "성별 필터" : null, profileSummary.subscription.voiceFilter ? "AI 보이스" : null, profileSummary.subscription.translation ? "자동 음성번역" : null, profileSummary.subscription.premiumAvatars ? "프리미엄 아바타" : null].filter((feature): feature is string => Boolean(feature)) : ["5회/일 매칭", "기본 아바타"]
   const isFilterActive = Boolean(activeFilterId) || isFilterLoading
+  const goToMainHome = useCallback(() => {
+    setActivePanel(null)
+    setTabOpen(false)
+    setChatView(null)
+    setProfileOpen(false)
+    setPaymentOpen(false)
+    setReportOpen(false)
+    router.push("/main")
+  }, [router])
 
   return (
     <>
-      <div className={`app page-transition${profileOpen ? " hidden" : ""}`}>
-        <Sidebar activePanel={activePanel} onTogglePanel={togglePanel} profileAvatar={profileAvatar} nickname={nickname} onOpenProfile={() => setProfileOpen(true)} onSignOut={() => signOut({ callbackUrl: "/login" })} onGoHome={() => router.push("/")} />
+      <div className={`app page-transition${profileOpen ? " profile-open" : ""}`}>
+        <Sidebar activePanel={activePanel} onTogglePanel={togglePanel} profileAvatar={profileAvatar} nickname={nickname} onOpenProfile={() => setProfileOpen(true)} onSignOut={() => signOut({ callbackUrl: "/login" })} onGoHome={goToMainHome} />
         <div className="main">
           <TopBar activeTab={activeTab} onSwitchTab={switchTab} receivedRequestsCount={receivedRequests.length} credits={credits} theme={theme} onToggleTheme={() => setTheme((value) => value === "dark" ? "light" : "dark")} onOpenPayment={openPayment} />
           <div className="content">
             <RecentCallsPanel isOpen={tabOpen && activeTab === "recent"} recentCalls={recentCalls} />
             <FriendsPanel isOpen={tabOpen && activeTab === "friends"} friends={friends} receivedRequests={receivedRequests} sentRequests={sentRequests} friendSubTab={friendSubTab} onSetFriendSubTab={setFriendSubTab} chatView={chatView} onSetChatView={setChatView} messages={chatView ? (friendMessages[chatView.id] ?? []) : []} chatMsg={chatMsg} onSetChatMsg={setChatMsg} onSendMsg={sendFriendMsg} onAcceptRequest={handleAcceptRequest} onRejectRequest={handleRejectRequest} onShowToast={showToast} onDeleteFriend={handleDeleteFriend} friendPreviews={friendPreviews} />
             <SlidePanel activePanel={activePanel} avatarTab={avatarTab} onSetAvatarTab={setAvatarTab} voiceTab={voiceTab} onSetVoiceTab={setVoiceTab} selectedAvatar={selectedAvatar} onSelectAvatar={handleSelectAvatar} selectedCeleb={selectedCeleb} onSelectCeleb={handleSelectCeleb} selectedVoice={selectedVoice} onSelectVoice={setSelectedVoice} selectedTranslate={selectedTranslate} onSelectTranslate={setSelectedTranslate} ownedAvatarNames={ownedAvatarNames} onOpenPayment={openPayment} />
-            <VideoArea inCall={inCall} matching={matching} localStream={localStream} remoteStream={remoteStream} localVideoRef={localVideoRef} canvasRef={canvasRef} remoteVideoRef={remoteVideoRef} micOff={micOff} camOff={camOff} isFilterActive={isFilterActive} onToggleMic={() => setMicOff((value) => !value)} onToggleCam={() => setCamOff((value) => !value)} selectedAvatar={selectedAvatar} activePeer={activePeer} callTimer={callTimer} onStartMatching={startMatching} onNextMatch={queueNextMatch} onEndCall={endCall} onOpenReport={() => setReportOpen(true)} onAddFriend={addFriend} isMatchingLoading={isMatchingLoading} isAddFriendLoading={isAddFriendLoading} matchingOverlay={<MatchingOverlay matchTimer={matchTimer} avatarEmoji={AVATARS[selectedAvatar].emoji} onCancel={cancelMatching} />} />
+            <VideoArea inCall={inCall} matching={matching} localStream={localStream} remoteStream={remoteStream} localVideoRef={localVideoRef} canvasRef={canvasRef} remoteVideoRef={remoteVideoRef} micOff={micOff} camOff={camOff} isFilterActive={isFilterActive} onToggleMic={() => setMicOff((value) => !value)} onToggleCam={() => setCamOff((value) => !value)} selectedAvatar={selectedAvatar} activePeer={activePeer} callTimer={callTimer} onStartMatching={startMatching} onNextMatch={queueNextMatch} onEndCall={endCall} onOpenReport={() => setReportOpen(true)} onAddFriend={addFriend} addFriendLabel={addFriendButtonLabel} addFriendState={addFriendButtonState} isAddFriendDisabled={isAddFriendDisabled} isCallTokenActive={isCallTokenActive} isMatchingLoading={isMatchingLoading} isAddFriendLoading={isAddFriendLoading} matchingOverlay={<MatchingOverlay matchTimer={matchTimer} avatarEmoji={AVATARS[selectedAvatar].emoji} onCancel={cancelMatching} />} />
+            {dmToast && <DirectMessageToast key={dmToast.id} nickname={dmToast.nickname} message={dmToast.message} />}
           </div>
         </div>
       </div>
 
-      <ProfileOverlay isOpen={profileOpen} onClose={() => setProfileOpen(false)} profileAvatar={profileAvatar} nickname={nickname} profileSummary={profileSummary} preferGender={matchGenderPref} currentLocationLabel={currentLocationLabel} currentLanguageLabel={currentLanguageLabel} currentGenderLabel={currentGenderLabel} matchingGenderLabel={matchingGenderLabel} planName={planName} planDesc={planDesc} planBadge={planBadge} planFeatures={planFeatures} onOpenAllPlans={() => { setProfileOpen(false); router.push("/shop") }} onSave={handleSaveProfile} />
+      <ProfileOverlay isOpen={profileOpen} onClose={() => setProfileOpen(false)} onGoHome={goToMainHome} profileAvatar={profileAvatar} nickname={nickname} profileSummary={profileSummary} preferGender={matchGenderPref} currentLocationLabel={currentLocationLabel} currentLanguageLabel={currentLanguageLabel} currentGenderLabel={currentGenderLabel} matchingGenderLabel={matchingGenderLabel} planName={planName} planDesc={planDesc} planBadge={planBadge} planFeatures={planFeatures} onOpenAllPlans={() => { setProfileOpen(false); router.push("/shop") }} onSave={handleSaveProfile} />
       <PaymentModal isOpen={paymentOpen} onClose={closePayment} paymentItem={paymentItem} payMethod={payMethod} onSetPayMethod={setPayMethod} onConfirm={confirmPayment} isLoading={isPaymentLoading} />
       <ReportModal isOpen={reportOpen} onClose={() => setReportOpen(false)} reportReason={reportReason} onSetReportReason={setReportReason} onSubmit={submitReport} isLoading={isReportLoading} />
       <LoadingOverlay isOpen={loadingProfile} />

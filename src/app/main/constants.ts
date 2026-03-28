@@ -158,8 +158,8 @@ export function mapFriends(friends: FriendRecord[]) {
   return friends.map((friend) => ({
     id: friend.id,
     name: friend.nickname ?? "익명",
-    status: "온라인",
-    online: true,
+    status: "오프라인",
+    online: false,
     emoji: "🙂",
     countryCode: friend.countryCode ?? undefined,
     gender: friend.gender ?? undefined,

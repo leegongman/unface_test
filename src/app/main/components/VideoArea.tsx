@@ -1,5 +1,5 @@
 // 파일 경로: src/app/main/components/VideoArea.tsx
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
 
 import { AVATARS, fmtTimer } from "../constants"
@@ -25,6 +25,10 @@ interface VideoAreaProps {
   onEndCall: () => void
   onOpenReport: () => void
   onAddFriend: () => void
+  addFriendLabel: string
+  addFriendState: "idle" | "pending" | "accepted"
+  isAddFriendDisabled: boolean
+  isCallTokenActive: boolean
   isMatchingLoading: boolean
   isAddFriendLoading: boolean
   matchingOverlay: ReactNode
@@ -51,10 +55,15 @@ export function VideoArea({
   onEndCall,
   onOpenReport,
   onAddFriend,
+  addFriendLabel,
+  addFriendState,
+  isAddFriendDisabled,
+  isCallTokenActive,
   isMatchingLoading,
   isAddFriendLoading,
   matchingOverlay,
 }: VideoAreaProps) {
+  const [isLocalVideoReady, setIsLocalVideoReady] = useState(false)
   const hasLocalVideo = Boolean(
     localStream?.getVideoTracks().some((track) => track.readyState === "live" && track.enabled)
   )
@@ -63,11 +72,80 @@ export function VideoArea({
   )
 
   useEffect(() => {
-    // 대기 화면과 통화 PIP 모두 같은 ref를 쓰므로 항상 최신 스트림을 연결합니다.
     const video = localVideoRef.current
     if (!video) return
-    video.srcObject = localStream
-  }, [localStream, inCall, localVideoRef, camOff, isFilterActive])
+    const resetVideoReadyState = () => {
+      window.requestAnimationFrame(() => {
+        setIsLocalVideoReady(false)
+      })
+    }
+
+    if (!localStream) {
+      resetVideoReadyState()
+      video.srcObject = null
+      return
+    }
+
+    const liveVideoTracks = localStream
+      .getVideoTracks()
+      .filter((track) => track.readyState === "live")
+
+    if (liveVideoTracks.length === 0) {
+      resetVideoReadyState()
+      video.srcObject = null
+      return
+    }
+
+    if (video.srcObject !== localStream) {
+      video.srcObject = localStream
+    }
+
+    video.muted = true
+    video.defaultMuted = true
+    video.playsInline = true
+    video.autoplay = true
+    video.setAttribute("muted", "true")
+    video.setAttribute("defaultMuted", "true")
+    video.setAttribute("playsinline", "true")
+    video.setAttribute("webkit-playsinline", "true")
+    video.setAttribute("autoplay", "true")
+
+    const syncVideoReadyState = () => {
+      const isReady = video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0
+      setIsLocalVideoReady(isReady)
+      return isReady
+    }
+
+    const playVideo = async () => {
+      try {
+        await video.play()
+      } catch {}
+      syncVideoReadyState()
+    }
+
+    const handleCanPlay = () => {
+      void playVideo()
+    }
+
+    video.addEventListener("loadedmetadata", handleCanPlay)
+    video.addEventListener("loadeddata", handleCanPlay)
+    video.addEventListener("canplay", handleCanPlay)
+    video.addEventListener("playing", handleCanPlay)
+
+    const retryTimer = window.setTimeout(() => {
+      void playVideo()
+    }, 180)
+
+    void playVideo()
+
+    return () => {
+      window.clearTimeout(retryTimer)
+      video.removeEventListener("loadedmetadata", handleCanPlay)
+      video.removeEventListener("loadeddata", handleCanPlay)
+      video.removeEventListener("canplay", handleCanPlay)
+      video.removeEventListener("playing", handleCanPlay)
+    }
+  }, [localStream, inCall, matching, localVideoRef, camOff, isFilterActive])
 
   return (
     <div className="video-wrap">
@@ -96,9 +174,15 @@ export function VideoArea({
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="call-live-timer" style={{ color: "#34d399" }}>{fmtTimer(callTimer)}</span>
+                <span className={`call-live-timer${isCallTokenActive ? " is-chargeable" : ""}`}>{fmtTimer(callTimer)}</span>
                 <div className="call-action-btns">
-                  <button className={`call-action-btn${isAddFriendLoading ? " btn-loading" : ""}`} onClick={onAddFriend} disabled={isAddFriendLoading}>👋 친구 추가</button>
+                  <button
+                    className={`call-action-btn friend-action-btn friend-action-${addFriendState}${isAddFriendLoading ? " btn-loading" : ""}`}
+                    onClick={onAddFriend}
+                    disabled={isAddFriendLoading || isAddFriendDisabled}
+                  >
+                    {addFriendLabel}
+                  </button>
                   <button className="call-action-btn" onClick={onOpenReport}>🚨 신고</button>
                 </div>
               </div>
@@ -127,19 +211,20 @@ export function VideoArea({
                         objectFit: "cover", borderRadius: "inherit",
                         position: "absolute", top: 0, left: 0,
                         transform: "scaleX(-1)",
-                        opacity: 0,
                         pointerEvents: "none",
                       }}
                     />
-                    <canvas
-                      ref={canvasRef}
-                      style={{
-                        width: "100%", height: "100%",
-                        objectFit: "cover", borderRadius: "inherit",
-                        position: "absolute", top: 0, left: 0,
-                        transform: "scaleX(-1)",
-                      }}
-                    />
+                    {isLocalVideoReady && (
+                      <canvas
+                        ref={canvasRef}
+                        style={{
+                          width: "100%", height: "100%",
+                          objectFit: "cover", borderRadius: "inherit",
+                          position: "absolute", top: 0, left: 0,
+                          transform: "scaleX(-1)",
+                        }}
+                      />
+                    )}
                   </>
                 )}
                 {!isFilterActive && !camOff && (
@@ -181,20 +266,21 @@ export function VideoArea({
                   objectFit: "cover",
                   borderRadius: "inherit",
                   transform: "scaleX(-1)",
-                  opacity: 0,
                   pointerEvents: "none",
                 }}
               />
-              <canvas
-                ref={canvasRef}
-                style={{
-                  position: "absolute", inset: 0,
-                  width: "100%", height: "100%",
-                  objectFit: "cover",
-                  borderRadius: "inherit",
-                  transform: "scaleX(-1)",
-                }}
-              />
+              {isLocalVideoReady && (
+                <canvas
+                  ref={canvasRef}
+                  style={{
+                    position: "absolute", inset: 0,
+                    width: "100%", height: "100%",
+                    objectFit: "cover",
+                    borderRadius: "inherit",
+                    transform: "scaleX(-1)",
+                  }}
+                />
+              )}
             </>
           )}
           {!isFilterActive && !camOff && (

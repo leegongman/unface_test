@@ -2,12 +2,13 @@
 import { useState } from "react"
 import type { CSSProperties } from "react"
 
-import { CONTINENT_LABELS, COUNTRY_LABELS, GENDER_LABELS, LANGUAGE_LABELS, getLocationLabel, getServerRegionsLabel } from "../constants"
+import { CONTINENT_LABELS, COUNTRY_LABELS, GENDER_LABELS, LANGUAGE_LABELS, getServerRegionsLabel } from "../constants"
 import type { ProfileSummary } from "../types"
 
 interface ProfileOverlayProps {
   isOpen: boolean
   onClose: () => void
+  onGoHome: () => void
   profileAvatar: string
   nickname: string
   profileSummary: ProfileSummary
@@ -29,6 +30,7 @@ const CONTINENT_OPTIONS = Object.entries(CONTINENT_LABELS).map(([code, { emoji, 
 export function ProfileOverlay({
   isOpen,
   onClose,
+  onGoHome,
   profileAvatar,
   nickname,
   profileSummary,
@@ -100,31 +102,13 @@ export function ProfileOverlay({
     width: "100%",
     padding: "6px 8px",
     borderRadius: 6,
-    border: "1px solid var(--card-border)",
-    background: "var(--card-bg)",
+    border: "1px solid var(--glass-card-border)",
+    background: "var(--glass-card-bg)",
     color: "var(--text-primary)",
     fontSize: 13,
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
   }
-
-  const genderBtnStyle = (active: boolean): CSSProperties => ({
-    padding: "5px 14px",
-    borderRadius: 20,
-    fontSize: 12,
-    cursor: "pointer",
-    border: "1px solid var(--card-border)",
-    background: active ? "var(--accent)" : "var(--card-bg)",
-    color: active ? "#fff" : "var(--text-primary)",
-  })
-
-  const continentBtnStyle = (active: boolean): CSSProperties => ({
-    padding: "5px 12px",
-    borderRadius: 20,
-    fontSize: 12,
-    cursor: "pointer",
-    border: "1px solid var(--card-border)",
-    background: active ? "#7c3aed" : "var(--card-bg)",
-    color: active ? "#fff" : "var(--text-primary)",
-  })
 
   const filteredCountries = Object.entries(COUNTRY_LABELS).filter(([code, { label }]) => {
     if (!countrySearch) return true
@@ -132,12 +116,21 @@ export function ProfileOverlay({
   })
 
   const selectedCountry = COUNTRY_LABELS[draft.countryCode]
+  const selectedCountryLabel = selectedCountry ? `${selectedCountry.emoji} ${selectedCountry.label}` : ""
+  const countryInputValue = showCountryList ? countrySearch : (countrySearch || selectedCountryLabel)
   const serverRegionsLabel = getServerRegionsLabel(profileSummary.serverRegions)
 
   return (
     <div className={`profile-overlay${isOpen ? " active" : ""}`}>
       <div className="profile-overlay-topbar">
-        <span className="profile-overlay-logo">unface</span>
+        <button
+          type="button"
+          className="profile-overlay-logo"
+          onClick={onGoHome}
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+        >
+          unface
+        </button>
         <button className="profile-close-btn" onClick={() => { setEditMode(false); onClose() }}>✕</button>
       </div>
 
@@ -161,19 +154,25 @@ export function ProfileOverlay({
                   <div style={{ position: "relative", width: "100%" }}>
                     <input
                       type="text"
-                      value={countrySearch}
-                      placeholder={selectedCountry ? `${selectedCountry.emoji} ${selectedCountry.label}` : "국가 검색..."}
+                      value={countryInputValue}
+                      name="country-search"
+                      placeholder="국가 검색..."
                       onChange={(e) => { setCountrySearch(e.target.value); setShowCountryList(true) }}
-                      onFocus={() => setShowCountryList(true)}
-                      onBlur={() => setTimeout(() => setShowCountryList(false), 150)}
+                      onFocus={() => { setCountrySearch(""); setShowCountryList(true) }}
+                      onBlur={() => setTimeout(() => { setShowCountryList(false); setCountrySearch("") }, 150)}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       style={selectStyle}
                     />
                     {showCountryList && (
                       <div style={{
                         position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
                         maxHeight: 200, overflowY: "auto",
-                        background: "var(--card-bg)", border: "1px solid var(--card-border)",
-                        borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                        background: "var(--glass-menu-bg)", border: "1px solid var(--glass-card-border)",
+                        borderRadius: 10, boxShadow: "0 18px 40px rgba(0,0,0,0.2)",
+                        backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
                       }}>
                         {filteredCountries.length === 0 ? (
                           <div style={{ padding: "8px 10px", fontSize: 13, color: "var(--text-dim)" }}>검색 결과 없음</div>
@@ -212,14 +211,16 @@ export function ProfileOverlay({
                 {/* 성별 */}
                 <div className="po-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6, marginTop: 12 }}>
                   <span className="po-key">성별</span>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="po-choice-group">
                     {genderOptions.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => setDraft((d) => ({ ...d, gender: opt.value }))}
-                        style={genderBtnStyle(draft.gender === opt.value)}
-                      >{opt.label}</button>
+                        className={`po-choice-pill${draft.gender === opt.value ? " active" : ""}`}
+                      >
+                        <span>{opt.label}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -233,16 +234,19 @@ export function ProfileOverlay({
                 <div className="po-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                     <span className="po-key">서버 대륙</span>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>복수 선택 가능</span>
+                    <span className="po-choice-hint">복수 선택 가능</span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="po-choice-group">
                     {CONTINENT_OPTIONS.map((opt) => (
                       <button
                         key={opt.code}
                         type="button"
                         onClick={() => toggleContinent(opt.code)}
-                        style={continentBtnStyle(draft.serverRegions.includes(opt.code))}
-                      >{opt.emoji} {opt.label}</button>
+                        className={`po-choice-pill${draft.serverRegions.includes(opt.code) ? " active" : ""}`}
+                      >
+                        <span className="po-choice-icon">{opt.emoji}</span>
+                        <span>{opt.label}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -250,33 +254,35 @@ export function ProfileOverlay({
                 {/* 선호 성별 */}
                 <div className="po-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6, marginTop: 12 }}>
                   <span className="po-key">선호 성별</span>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="po-choice-group">
                     {genderOptions.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => setDraft((d) => ({ ...d, preferGender: opt.value }))}
-                        style={genderBtnStyle(draft.preferGender === opt.value)}
-                      >{opt.label}</button>
+                        className={`po-choice-pill${draft.preferGender === opt.value ? " active" : ""}`}
+                      >
+                        <span>{opt.label}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <div className="po-action-row">
               <button
-                className="po-edit-btn"
+                type="button"
+                className="po-action-btn po-action-btn-primary"
                 onClick={handleSave}
                 disabled={saving}
-                style={{ flex: 1, background: "#7c3aed", color: "#fff" }}
               >
-                {saving ? "저장 중..." : "저장하기 →"}
+                {saving ? "저장 중..." : "저장"}
               </button>
               <button
-                className="po-edit-btn"
+                type="button"
+                className="po-action-btn"
                 onClick={() => setEditMode(false)}
-                style={{ flex: 1, background: "var(--card-bg)", color: "var(--text-sub)" }}
               >
                 취소
               </button>

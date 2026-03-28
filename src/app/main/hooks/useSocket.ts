@@ -15,7 +15,6 @@ interface UseSocketParams {
   socketRef: React.MutableRefObject<Socket | null>
   activePeerSocketIdRef: React.MutableRefObject<string | null>
   startWebRTC: (peerId: string, isInitiator: boolean) => Promise<void>
-  cleanupWebRTC: () => void
   rematchAfterCallEnd: () => void
   showToast: (msg: string, type?: "success" | "error" | "info") => void
   setInCall: React.Dispatch<React.SetStateAction<boolean>>
@@ -32,6 +31,8 @@ interface UseSocketParams {
   matchTimerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
   isMatchingRef: React.MutableRefObject<boolean>
   onDmReceive: (senderUserId: string, text: string, time: string) => void
+  onFriendIncoming: () => void
+  onFriendResponse: () => void
 }
 
 interface UseSocketReturn {
@@ -43,7 +44,6 @@ export function useSocket({
   socketRef,
   activePeerSocketIdRef,
   startWebRTC,
-  cleanupWebRTC,
   rematchAfterCallEnd,
   showToast,
   setInCall,
@@ -58,6 +58,8 @@ export function useSocket({
   matchTimerRef,
   isMatchingRef,
   onDmReceive,
+  onFriendIncoming,
+  onFriendResponse,
 }: UseSocketParams): UseSocketReturn {
   useEffect(() => {
     const setup = async () => {
@@ -170,9 +172,11 @@ export function useSocket({
 
     socket.on("friend:incoming", (data: { fromSocketId: string; fromUserId: string; fromNickname: string }) => {
       setFriendRequest(data)
+      onFriendIncoming()
     })
 
     socket.on("friend:response", (data: { accepted: boolean; responderNickname: string }) => {
+      onFriendResponse()
       if (data.accepted) {
         showToast(`${data.responderNickname}님이 친구 요청을 수락했습니다!`)
       } else {
@@ -182,12 +186,10 @@ export function useSocket({
 
     return () => {
       socket.disconnect()
-      cleanupWebRTC()
     }
   }, [
     activePeerSocketIdRef,
     callTimerRef,
-    cleanupWebRTC,
     iceCandidateBuffer,
     isMatchingRef,
     matchTimerRef,
@@ -203,6 +205,8 @@ export function useSocket({
     showToast,
     socketRef,
     startWebRTC,
+    onFriendIncoming,
+    onFriendResponse,
   ])
 
   return {

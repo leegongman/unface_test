@@ -90,8 +90,8 @@ export function useWebRTC({
 
     const pc = new RTCPeerConnection({ iceServers })
     peerConnectionRef.current = pc
-    remoteStreamRef.current = new MediaStream()
-    setRemoteStream(remoteStreamRef.current)
+    remoteStreamRef.current = null
+    setRemoteStream(null)
 
     const hasLiveFilteredVideo = Boolean(
       filteredStreamRef.current?.getVideoTracks().some((track) => track.readyState === "live")
@@ -109,16 +109,17 @@ export function useWebRTC({
 
     // 상대방 스트림 수신 — state로 저장해 useEffect가 video에 연결
     pc.ontrack = (event) => {
-      const nextRemoteStream = remoteStreamRef.current ?? new MediaStream()
-      const hasTrack = nextRemoteStream.getTracks().some((track) => track.id === event.track.id)
-
-      if (!hasTrack) {
-        nextRemoteStream.addTrack(event.track)
-      }
+      const existingTracks = remoteStreamRef.current?.getTracks() ?? []
+      const hasTrack = existingTracks.some((track) => track.id === event.track.id)
+      const nextTracks = hasTrack ? existingTracks : [...existingTracks, event.track]
+      const nextRemoteStream = new MediaStream(nextTracks)
 
       remoteStreamRef.current = nextRemoteStream
-      if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== nextRemoteStream) {
+      setRemoteStream(nextRemoteStream)
+
+      if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = nextRemoteStream
+        void remoteVideoRef.current.play().catch(() => {})
       }
 
       console.info("[webrtc] remote track received", {

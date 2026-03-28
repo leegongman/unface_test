@@ -128,6 +128,13 @@ export function useMediaStream({
     localStreamRef.current?.getVideoTracks().forEach((track) => { track.enabled = !camOff })
   }, [camOff])
 
+  useEffect(() => {
+    return () => {
+      localStreamRef.current?.getTracks().forEach((track) => track.stop())
+      localStreamRef.current = null
+    }
+  }, [])
+
   return {
     localStream,
     localStreamRef,

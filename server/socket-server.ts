@@ -39,6 +39,7 @@ const matchQueue: QueueEntry[] = []
 const activeCalls: Map<string, string> = new Map() // socketId → partnerSocketId
 const onlineUsers: Map<string, string> = new Map() // socketId → userId
 const userSockets: Map<string, string> = new Map() // userId → socketId (최신 연결)
+const presenceSubscriptions: Map<string, Set<string>> = new Map() // socketId -> watched friend userIds
 
 interface MatchJoinPayload {
   userId: string
@@ -56,6 +57,36 @@ interface WebRtcOfferPayload {
 interface WebRtcIcePayload {
   targetId: string
   candidate: RTCIceCandidateInit
+}
+
+function getOnlineUserIds() {
+  return new Set(onlineUsers.values())
+}
+
+function emitPresenceSnapshot(socket: Socket) {
+  const watchedUserIds = presenceSubscriptions.get(socket.id)
+  if (!watchedUserIds || watchedUserIds.size === 0) {
+    socket.emit("friends:presence", { onlineIds: [] })
+    return
+  }
+
+  const onlineUserIds = getOnlineUserIds()
+  const onlineIds = Array.from(watchedUserIds).filter((userId) => onlineUserIds.has(userId))
+  socket.emit("friends:presence", { onlineIds })
+}
+
+function broadcastPresenceUpdate(userId: string) {
+  const onlineUserIds = getOnlineUserIds()
+  const isOnline = onlineUserIds.has(userId)
+
+  for (const [socketId, watchedUserIds] of presenceSubscriptions.entries()) {
+    if (!watchedUserIds.has(userId)) continue
+
+    io.to(socketId).emit("friends:presence:update", {
+      userId,
+      online: isOnline,
+    })
+  }
 }
 
 function normalizeServerRegion(region: string | undefined): string {
@@ -180,6 +211,7 @@ io.on("connection", (socket) => {
   if (socket.data.userId) {
     onlineUsers.set(socket.id, socket.data.userId)
     userSockets.set(socket.data.userId, socket.id)
+    broadcastPresenceUpdate(socket.data.userId)
   }
 
   socket.on("match:join", (data) => {
@@ -264,6 +296,24 @@ io.on("connection", (socket) => {
     }
   })
 
+  socket.on("friends:subscribePresence", (userIds: string[] = []) => {
+    const watchedUserIds = new Set(
+      userIds
+        .filter((userId): userId is string => typeof userId === "string")
+        .map((userId) => userId.trim())
+        .filter(Boolean)
+    )
+
+    if (watchedUserIds.size === 0) {
+      presenceSubscriptions.delete(socket.id)
+      socket.emit("friends:presence", { onlineIds: [] })
+      return
+    }
+
+    presenceSubscriptions.set(socket.id, watchedUserIds)
+    emitPresenceSnapshot(socket)
+  })
+
   socket.on("friends:getOnline", (userIds: string[], callback: (onlineIds: string[]) => void) => {
     const onlineSet = new Set(onlineUsers.values())
     const result = userIds.filter(id => onlineSet.has(id))
@@ -273,8 +323,14 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     removeQueueEntry(socket.id)
 
+    presenceSubscriptions.delete(socket.id)
     onlineUsers.delete(socket.id)
-    if (socket.data.userId) userSockets.delete(socket.data.userId)
+    if (socket.data.userId && userSockets.get(socket.data.userId) === socket.id) {
+      userSockets.delete(socket.data.userId)
+    }
+    if (socket.data.userId) {
+      broadcastPresenceUpdate(socket.data.userId)
+    }
 
     const partnerId = activeCalls.get(socket.id)
     if (partnerId) {

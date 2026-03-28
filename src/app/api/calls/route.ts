@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server"
 
 import { auth } from "@/lib/auth"
+import { getChargeableCallDurationSec, hasReachedCallTokenThreshold } from "@/lib/call-billing"
 
 export async function POST(req: Request) {
   const session = await auth()
@@ -28,6 +29,8 @@ export async function POST(req: Request) {
   })
 
   const duration = typeof durationSec === "number" ? durationSec : 0
+  const chargeableDurationSec = getChargeableCallDurationSec(duration)
+  const callTokenThresholdReached = hasReachedCallTokenThreshold(duration)
   const endedAt = new Date()
   const startedAt = new Date(endedAt.getTime() - duration * 1000)
 
@@ -42,5 +45,5 @@ export async function POST(req: Request) {
     },
   })
 
-  return NextResponse.json({ id: call.id })
+  return NextResponse.json({ id: call.id, chargeableDurationSec, callTokenThresholdReached })
 }

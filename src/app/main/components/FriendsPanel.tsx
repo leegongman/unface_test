@@ -114,14 +114,13 @@ export function FriendsPanel({
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 22,
                       }}>{friend.emoji}</div>
-                      {friend.online && (
-                        <div style={{
-                          position: "absolute", bottom: 1, right: 1,
-                          width: 11, height: 11, borderRadius: "50%",
-                          background: "var(--badge-online)",
-                          border: "2px solid var(--sidebar-bg)",
-                        }} />
-                      )}
+                      <div style={{
+                        position: "absolute", bottom: 1, right: 1,
+                        width: 11, height: 11, borderRadius: "50%",
+                        background: friend.online ? "var(--badge-online)" : "var(--badge-offline)",
+                        border: "2px solid var(--sidebar-bg)",
+                        boxShadow: friend.online ? "0 0 0 2px rgba(34,197,94,0.12)" : "none",
+                      }} />
                     </div>
 
                     {/* 이름 + 마지막 대화 미리보기 */}

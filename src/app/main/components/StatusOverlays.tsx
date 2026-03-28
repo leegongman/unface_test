@@ -20,6 +20,11 @@ interface ToastMessageProps {
   type: "success" | "error" | "info"
 }
 
+interface DirectMessageToastProps {
+  nickname: string
+  message: string
+}
+
 export function LoadingOverlay({ isOpen }: LoadingOverlayProps) {
   if (!isOpen) return null
 
@@ -44,9 +49,27 @@ export function FriendRequestToast({ request, onAccept, onReject }: FriendReques
 }
 
 export function ToastMessage({ message, type }: ToastMessageProps) {
+  const title =
+    type === "success" ? "완료" : type === "error" ? "오류" : "알림"
+
   return (
-    <div className={`toast-enter toast-${type}`} style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", background: "rgba(30,20,50,0.95)", border: "1px solid rgba(124,58,237,0.4)", color: "#fff", padding: "10px 20px", borderRadius: 12, fontSize: 13, fontWeight: 600, zIndex: 400, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}>
-      {message}
+    <div className={`toast-banner toast-enter toast-${type}`} role="status" aria-live="polite">
+      <div className="toast-copy">
+        <div className="toast-title">{title}</div>
+        <div className="toast-body">{message}</div>
+      </div>
+    </div>
+  )
+}
+
+export function DirectMessageToast({ nickname, message }: DirectMessageToastProps) {
+  return (
+    <div className="toast-banner dm-toast-banner dm-toast-enter toast-info" role="status" aria-live="polite">
+      <div className="toast-copy dm-toast-copy">
+        <div className="dm-toast-tag">새 메시지</div>
+        <div className="dm-toast-name">{nickname}</div>
+        <div className="dm-toast-body">{message}</div>
+      </div>
     </div>
   )
 }
