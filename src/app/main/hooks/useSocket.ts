@@ -1,5 +1,5 @@
 // 파일 경로: src/app/main/hooks/useSocket.ts
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import type { Socket } from "socket.io-client"
 
 import { getSocket } from "../../../lib/socket-client"
@@ -61,6 +61,26 @@ export function useSocket({
   onFriendIncoming,
   onFriendResponse,
 }: UseSocketParams): UseSocketReturn {
+  // ──────────────────────────────────────────────────────────────
+  // 핵심 수정: startWebRTC 등 콜백을 ref에 저장해서 useEffect의
+  // 의존성 배열에서 제거합니다. 이렇게 하면 useEffect가 마운트 시
+  // 한 번만 실행되어 소켓 리스너가 중복 등록되지 않습니다.
+  // ──────────────────────────────────────────────────────────────
+  const startWebRTCRef = useRef(startWebRTC)
+  const rematchAfterCallEndRef = useRef(rematchAfterCallEnd)
+  const showToastRef = useRef(showToast)
+  const onDmReceiveRef = useRef(onDmReceive)
+  const onFriendIncomingRef = useRef(onFriendIncoming)
+  const onFriendResponseRef = useRef(onFriendResponse)
+
+  // 매 렌더마다 ref를 최신 값으로 갱신
+  useEffect(() => { startWebRTCRef.current = startWebRTC }, [startWebRTC])
+  useEffect(() => { rematchAfterCallEndRef.current = rematchAfterCallEnd }, [rematchAfterCallEnd])
+  useEffect(() => { showToastRef.current = showToast }, [showToast])
+  useEffect(() => { onDmReceiveRef.current = onDmReceive }, [onDmReceive])
+  useEffect(() => { onFriendIncomingRef.current = onFriendIncoming }, [onFriendIncoming])
+  useEffect(() => { onFriendResponseRef.current = onFriendResponse }, [onFriendResponse])
+
   useEffect(() => {
     const setup = async () => {
       // 서버에서 서명된 소켓 인증 토큰 발급
@@ -91,8 +111,11 @@ export function useSocket({
       iceCandidateBuffer.current = []
     }
 
+    // offer 처리 중 중복 진입 방지
+    let isHandlingOffer = false
+
     // 매칭 성사 — 서버가 isInitiator 결정
-    socket.on("match:found", async (data: MatchFoundPayload) => {
+    const onMatchFound = async (data: MatchFoundPayload) => {
       // 이미 취소된 매칭 요청의 stale 응답 무시
       if (!isMatchingRef.current) return
       isMatchingRef.current = false
@@ -105,37 +128,50 @@ export function useSocket({
       setCallTimer(0)
       callTimerRef.current = setInterval(() => setCallTimer((seconds) => seconds + 1), 1000)
       // initiator만 여기서 PeerConnection 생성 + offer 전송
-      // non-initiator는 webrtc:offer 수신 시 PC를 생성해야 하므로 여기서 호출하지 않음
+      // non-initiator는 webrtc:offer 수신 시 PC를 생성
       if (data.isInitiator) {
-        await startWebRTC(data.peerId, true)
+        await startWebRTCRef.current(data.peerId, true)
       }
-    })
+    }
 
     // Offer 수신 (non-initiator 쪽)
-    socket.on("webrtc:offer", async (data: WebRtcOfferPayload) => {
-      // non-initiator: offer를 받았을 때 PC를 생성하고, 바로 remoteDescription 설정
-      await startWebRTC(data.from, false)
-      const pc = peerConnectionRef.current
-      if (!pc) return
-      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-      await drainIceBuffer(pc)
-      const answer = await pc.createAnswer()
-      await pc.setLocalDescription(answer)
-      socket.emit("webrtc:answer", { targetId: data.from, sdp: pc.localDescription })
-    })
+    const onWebRtcOffer = async (data: WebRtcOfferPayload) => {
+      if (isHandlingOffer) return
+      isHandlingOffer = true
+
+      try {
+        await startWebRTCRef.current(data.from, false)
+        const pc = peerConnectionRef.current
+        if (!pc) return
+        if (pc.signalingState !== "stable") return
+
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+        await drainIceBuffer(pc)
+        const answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+        socket.emit("webrtc:answer", { targetId: data.from, sdp: pc.localDescription })
+      } catch (err) {
+        console.error("[webrtc] offer handling failed", err)
+      } finally {
+        isHandlingOffer = false
+      }
+    }
 
     // Answer 수신 (initiator 쪽)
-    socket.on("webrtc:answer", async (data: WebRtcAnswerPayload) => {
+    const onWebRtcAnswer = async (data: WebRtcAnswerPayload) => {
       const pc = peerConnectionRef.current
       if (!pc) return
-      // initiator의 PC가 offer를 보낸 후 have-local-offer 상태인지 확인
       if (pc.signalingState !== "have-local-offer") return
-      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-      await drainIceBuffer(pc)
-    })
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+        await drainIceBuffer(pc)
+      } catch (err) {
+        console.error("[webrtc] answer handling failed", err)
+      }
+    }
 
     // ICE candidate — remote description 없으면 버퍼에 쌓기
-    socket.on("webrtc:ice", async (data: WebRtcIcePayload) => {
+    const onWebRtcIce = async (data: WebRtcIcePayload) => {
       const pc = peerConnectionRef.current
       if (!pc || !data.candidate) return
       if (pc.remoteDescription) {
@@ -143,9 +179,9 @@ export function useSocket({
       } else {
         iceCandidateBuffer.current.push(data.candidate)
       }
-    })
+    }
 
-    socket.on("call:ended", () => {
+    const onCallEnded = () => {
       const hasActiveCall = Boolean(activePeerSocketIdRef.current || peerConnectionRef.current)
       if (!hasActiveCall) return
 
@@ -155,67 +191,72 @@ export function useSocket({
       }
 
       setCallTimer(0)
-      showToast("상대방이 통화를 종료해 다음 상대를 찾고 있습니다", "info")
-      rematchAfterCallEnd()
-    })
+      showToastRef.current("상대방이 통화를 종료해 다음 상대를 찾고 있습니다", "info")
+      rematchAfterCallEndRef.current()
+    }
 
-    socket.on("message:receive", (data: { text: string; time: string }) => {
+    const onMessageReceive = (data: { text: string; time: string }) => {
       const date = new Date(data.time)
       const hour = date.getHours()
       const time = hour >= 12
         ? `오후 ${hour - 12 || 12}:${String(date.getMinutes()).padStart(2, "0")}`
         : `오전 ${hour}:${String(date.getMinutes()).padStart(2, "0")}`
       setMessages((messages) => [...messages, { mine: false, text: data.text, time }])
-    })
+    }
 
-    // 친구 간 DM 수신
-    socket.on("dm:receive", (data: { senderUserId: string; text: string; time: string }) => {
+    const onDmReceiveHandler = (data: { senderUserId: string; text: string; time: string }) => {
       const date = new Date(data.time)
       const hour = date.getHours()
       const time = hour >= 12
         ? `오후 ${hour - 12 || 12}:${String(date.getMinutes()).padStart(2, "0")}`
         : `오전 ${hour}:${String(date.getMinutes()).padStart(2, "0")}`
-      onDmReceive(data.senderUserId, data.text, time)
-    })
+      onDmReceiveRef.current(data.senderUserId, data.text, time)
+    }
 
-    socket.on("friend:incoming", (data: { fromSocketId: string; fromUserId: string; fromNickname: string }) => {
+    const onFriendIncomingHandler = (data: { fromSocketId: string; fromUserId: string; fromNickname: string }) => {
       setFriendRequest(data)
-      onFriendIncoming()
-    })
+      onFriendIncomingRef.current()
+    }
 
-    socket.on("friend:response", (data: { accepted: boolean; responderNickname: string }) => {
-      onFriendResponse()
+    const onFriendResponseHandler = (data: { accepted: boolean; responderNickname: string }) => {
+      onFriendResponseRef.current()
       if (data.accepted) {
-        showToast(`${data.responderNickname}님이 친구 요청을 수락했습니다!`)
+        showToastRef.current(`${data.responderNickname}님이 친구 요청을 수락했습니다!`)
       } else {
-        showToast(`${data.responderNickname}님이 친구 요청을 거절했습니다`)
+        showToastRef.current(`${data.responderNickname}님이 친구 요청을 거절했습니다`)
       }
-    })
+    }
+
+    socket.on("match:found", onMatchFound)
+    socket.on("webrtc:offer", onWebRtcOffer)
+    socket.on("webrtc:answer", onWebRtcAnswer)
+    socket.on("webrtc:ice", onWebRtcIce)
+    socket.on("call:ended", onCallEnded)
+    socket.on("message:receive", onMessageReceive)
+    socket.on("dm:receive", onDmReceiveHandler)
+    socket.on("friend:incoming", onFriendIncomingHandler)
+    socket.on("friend:response", onFriendResponseHandler)
 
     return () => {
+      socket.off("match:found", onMatchFound)
+      socket.off("webrtc:offer", onWebRtcOffer)
+      socket.off("webrtc:answer", onWebRtcAnswer)
+      socket.off("webrtc:ice", onWebRtcIce)
+      socket.off("call:ended", onCallEnded)
+      socket.off("message:receive", onMessageReceive)
+      socket.off("dm:receive", onDmReceiveHandler)
+      socket.off("friend:incoming", onFriendIncomingHandler)
+      socket.off("friend:response", onFriendResponseHandler)
       socket.disconnect()
     }
-  }, [
-    activePeerSocketIdRef,
-    callTimerRef,
-    iceCandidateBuffer,
-    isMatchingRef,
-    matchTimerRef,
-    onDmReceive,
-    peerConnectionRef,
-    rematchAfterCallEnd,
-    setActivePeer,
-    setCallTimer,
-    setFriendRequest,
-    setInCall,
-    setMatching,
-    setMessages,
-    showToast,
-    socketRef,
-    startWebRTC,
-    onFriendIncoming,
-    onFriendResponse,
-  ])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // 의존성 배열을 빈 배열로 변경:
+  // - 콜백들은 ref를 통해 항상 최신 값 참조
+  // - ref 객체들(socketRef, peerConnectionRef 등)은 identity가 변하지 않음
+  // - setter 함수들(setInCall 등)은 React가 안정적으로 보장
+  // 이렇게 하면 useEffect가 마운트 시 1회만 실행되어
+  // 소켓 리스너가 절대 중복 등록되지 않음
 
   return {
     socketRef,
