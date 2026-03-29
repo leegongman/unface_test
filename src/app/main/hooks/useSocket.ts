@@ -104,13 +104,19 @@ export function useSocket({
       if (callTimerRef.current) clearInterval(callTimerRef.current)
       setCallTimer(0)
       callTimerRef.current = setInterval(() => setCallTimer((seconds) => seconds + 1), 1000)
-      await startWebRTC(data.peerId, data.isInitiator)
+      // initiator만 여기서 PeerConnection 생성 + offer 전송
+      // non-initiator는 webrtc:offer 수신 시 PC를 생성해야 하므로 여기서 호출하지 않음
+      if (data.isInitiator) {
+        await startWebRTC(data.peerId, true)
+      }
     })
 
     // Offer 수신 (non-initiator 쪽)
     socket.on("webrtc:offer", async (data: WebRtcOfferPayload) => {
+      // non-initiator: offer를 받았을 때 PC를 생성하고, 바로 remoteDescription 설정
       await startWebRTC(data.from, false)
-      const pc = peerConnectionRef.current!
+      const pc = peerConnectionRef.current
+      if (!pc) return
       await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
       await drainIceBuffer(pc)
       const answer = await pc.createAnswer()
@@ -122,6 +128,8 @@ export function useSocket({
     socket.on("webrtc:answer", async (data: WebRtcAnswerPayload) => {
       const pc = peerConnectionRef.current
       if (!pc) return
+      // initiator의 PC가 offer를 보낸 후 have-local-offer 상태인지 확인
+      if (pc.signalingState !== "have-local-offer") return
       await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
       await drainIceBuffer(pc)
     })
